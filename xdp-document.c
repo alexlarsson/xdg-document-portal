@@ -22,6 +22,8 @@ enum {
 
 static GParamSpec *gParamSpecs [LAST_PROP];
 
+static GHashTable *documents;
+
 static void
 xdp_document_finalize (GObject *object)
 {
@@ -114,4 +116,42 @@ xdp_document_class_init (XdpDocumentClass *klass)
 static void
 xdp_document_init (XdpDocument *self)
 {
+}
+
+XdpDocument *
+xdp_document_new (GomRepository *repo,
+		  const char *url)
+{
+  return g_object_new (XDP_TYPE_DOCUMENT,
+		       "repository", repo,
+		       "url", url);
+}
+
+void
+xdp_document_handle_call (XdpDocument *doc,
+			  GDBusMethodInvocation *invocation)
+{
+  g_print ("handle call %s on id %d\n", g_dbus_method_invocation_get_method_name (invocation), (int)doc->id);
+}
+
+static void
+ensure_documents (void)
+{
+  if (documents == NULL)
+    documents = g_hash_table_new_full (g_int64_hash, g_int64_equal,
+				       NULL, g_object_unref);
+}
+
+XdpDocument *
+xdp_document_lookup (gint64 id)
+{
+  ensure_documents ();
+  return g_hash_table_lookup (documents, &id);
+}
+
+void
+xdp_document_insert (XdpDocument *doc)
+{
+  ensure_documents ();
+  g_hash_table_insert (documents, &doc->id, g_object_ref (doc));
 }

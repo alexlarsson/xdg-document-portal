@@ -13,7 +13,7 @@ BUILT_SOURCES = $(dbus_built_sources)
 $(dbus_built_sources) : Makefile.am org.freedesktop.portal.documents.xml
 	$(AM_V_GEN) $(GDBUS_CODEGEN)				\
 		--interface-prefix org.freedesktop.portal.	\
-		--c-namespace Xdp				\
+		--c-namespace XdpDbus				\
 		--generate-c-code xdg-document-portal-dbus		\
 		$(srcdir)/org.freedesktop.portal.documents.xml		\
 		$(NULL)
@@ -38,10 +38,12 @@ service_DATA = org.freedesktop.portal.DocumentPortal.service
 
 xdg_document_portal_SOURCES = \
 	xdg-document-portal.c	\
+	xdp-document.c		\
+	xdp-document.h		\
 	$(dbus_built_sources)		\
 	xdg-document-portal-resources.h		\
 	xdg-document-portal-resources.c		\
 	$(NULL)
 
-xdg_document_portal_LDADD = $(BASE_LIBS) $(SQLITE3_LIBS)
-xdg_document_portal_CFLAGS = $(BASE_CFLAGS) $(SQLITE3_CFLAGS)
+xdg_document_portal_LDADD = $(BASE_LIBS) $(GOM_LIBS)
+xdg_document_portal_CFLAGS = $(BASE_CFLAGS) $(GOM_CFLAGS)

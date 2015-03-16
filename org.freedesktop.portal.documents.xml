@@ -31,5 +31,19 @@
       <arg type='s' name='window' direction='in'/>
       <arg type='h' name='fd' direction='out'/>
     </method>
+    <method name="PrepareUpdate">
+      <arg type='s' name='window' direction='in'/>
+      <arg type='s' name='id' direction='out'/>
+      <arg type='h' name='fd' direction='out'/>
+    </method>
+    <method name="FinishUpdate">
+      <arg type='s' name='window' direction='in'/>
+      <arg type='s' name='id' direction='out'/>
+      <arg type='a{sv}' name='metadata' direction='out'/>
+    </method>
+    <method name="GrantPermissions">
+      <arg type='s' name='appid' direction='in'/>
+      <arg type='as' name='permissions' direction='in'/>
+    </method>
   </interface>
 </node>

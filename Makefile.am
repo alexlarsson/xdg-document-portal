@@ -3,6 +3,10 @@ NULL =
 AM_CPPFLAGS =						\
 	$(NULL)
 
+noinst_PROGRAMS = \
+	xdp-cat \
+	$(NULL)
+
 libexec_PROGRAMS = \
 	xdg-document-portal \
 	$(NULL)
@@ -40,6 +44,8 @@ xdg_document_portal_SOURCES = \
 	xdp-main.c		\
 	xdp-document.c		\
 	xdp-document.h		\
+	xdp-error.c		\
+	xdp-error.h		\
 	$(dbus_built_sources)	\
 	xdp-resources.h		\
 	xdp-resources.c		\
@@ -47,3 +53,11 @@ xdg_document_portal_SOURCES = \
 
 xdg_document_portal_LDADD = $(BASE_LIBS) $(GOM_LIBS)
 xdg_document_portal_CFLAGS = $(BASE_CFLAGS) $(GOM_CFLAGS)
+
+xdp_cat_SOURCES = \
+	xdp-cat.c		\
+	$(dbus_built_sources)	\
+	$(NULL)
+
+xdp_cat_LDADD = $(BASE_LIBS)
+xdp_cat_CFLAGS = $(BASE_CFLAGS)

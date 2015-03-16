@@ -1,14 +1,21 @@
 #include <glib/gi18n.h>
 #include <gio/gio.h>
+#include <gio/gunixfdlist.h>
+
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <errno.h>
 
 #include "xdp-document.h"
+#include "xdp-error.h"
 
 struct _XdpDocument
 {
   GomResource parent;
 
   gint64 id;
-  char *url;
+  char *uri;
 };
 
 G_DEFINE_TYPE(XdpDocument, xdp_document, GOM_TYPE_RESOURCE)
@@ -16,7 +23,7 @@ G_DEFINE_TYPE(XdpDocument, xdp_document, GOM_TYPE_RESOURCE)
 enum {
   PROP_0,
   PROP_ID,
-  PROP_URL,
+  PROP_URI,
   LAST_PROP
 };
 
@@ -29,7 +36,7 @@ xdp_document_finalize (GObject *object)
 {
   XdpDocument *doc = (XdpDocument *)object;
 
-  g_free (doc->url);
+  g_free (doc->uri);
 
   G_OBJECT_CLASS (xdp_document_parent_class)->finalize (object);
 }
@@ -48,8 +55,8 @@ xdp_document_get_property (GObject    *object,
       g_value_set_int64 (value, doc->id);
       break;
 
-    case PROP_URL:
-      g_value_set_string (value, doc->url);
+    case PROP_URI:
+      g_value_set_string (value, doc->uri);
       break;
 
     default:
@@ -71,9 +78,9 @@ xdp_document_set_property (GObject      *object,
       doc->id = g_value_get_int64 (value);
       break;
 
-    case PROP_URL:
-      g_free (doc->url);
-      doc->url = g_value_dup_string (value);
+    case PROP_URI:
+      g_free (doc->uri);
+      doc->uri = g_value_dup_string (value);
       break;
 
     default:
@@ -104,12 +111,12 @@ xdp_document_class_init (XdpDocumentClass *klass)
                                    gParamSpecs [PROP_ID]);
   gom_resource_class_set_primary_key(resource_class, "id");
 
-  gParamSpecs[PROP_URL] = g_param_spec_string("url", "Url",
+  gParamSpecs[PROP_URI] = g_param_spec_string("uri", "Uri",
                                               "Location of data.",
                                               NULL, G_PARAM_READWRITE);
-  g_object_class_install_property (object_class, PROP_URL,
-                                   gParamSpecs[PROP_URL]);
-  gom_resource_class_set_notnull(resource_class, "url");
+  g_object_class_install_property (object_class, PROP_URI,
+                                   gParamSpecs[PROP_URI]);
+  gom_resource_class_set_notnull(resource_class, "uri");
 
 }
 
@@ -120,11 +127,11 @@ xdp_document_init (XdpDocument *self)
 
 XdpDocument *
 xdp_document_new (GomRepository *repo,
-                  const char *url)
+                  const char *uri)
 {
   return g_object_new (XDP_TYPE_DOCUMENT,
                        "repository", repo,
-                       "url", url);
+                       "uri", uri);
 }
 
 gint64
@@ -139,8 +146,43 @@ xdp_document_handle_read (XdpDocument *doc,
                           GVariant *parameters)
 {
   const char *window;
+  g_autoptr(GFile) file = NULL;
+  g_autofree char *path = NULL;
+  GUnixFDList *fd_list = NULL;
+  g_autoptr(GError) error = NULL;
+  int fd, fd_id;
+  GVariant *retval;
 
   g_variant_get (parameters, "(s)", &window);
+
+  file = g_file_new_for_uri (doc->uri);
+  path = g_file_get_path (file);
+
+  fd = open (path, O_CLOEXEC | O_RDONLY);
+  if (fd == -1)
+    {
+      int errsv = errno;
+      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+                                             "Unable to open file: %s", strerror(errsv));
+      return;
+    }
+
+  fd_list = g_unix_fd_list_new ();
+  fd_id = g_unix_fd_list_append (fd_list, fd, &error);
+  close (fd);
+  if (fd_id == -1)
+    {
+      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+                                             "Unable to append fd: %s", error->message);
+      goto out;
+    }
+
+  retval = g_variant_new ("(h)", fd_id);
+  g_dbus_method_invocation_return_value_with_unix_fd_list (invocation, retval, fd_list);
+
+ out:
+  if (fd_list)
+    g_object_unref (fd_list);
 }
 
 struct {

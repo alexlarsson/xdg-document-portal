@@ -26,6 +26,6 @@ config.h.in
 stamp-*
 *~
 *.service
-xdg-document-portal-resources.[ch]
-xdg-document-portal-dbus.[ch]
+xdp-resources.[ch]
+xdp-dbus.[ch]
 xdg-document-portal

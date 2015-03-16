@@ -5,7 +5,7 @@
 #include <string.h>
 #include <gio/gio.h>
 #include <gom/gom.h>
-#include "xdg-document-portal-dbus.h"
+#include "xdp-dbus.h"
 #include "xdp-document.h"
 
 static GomRepository *repository = NULL;

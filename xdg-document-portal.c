@@ -26,50 +26,50 @@ document_call_free (DocumentCall *call)
 
 static void
 find_one_doc_cb (GObject *source_object,
-		 GAsyncResult *res,
-		 gpointer user_data)
+                 GAsyncResult *res,
+                 gpointer user_data)
 {
   DocumentCall *call = user_data;
   gint64 id = call->id;
   g_autoptr (GomResource) resource = NULL;
   g_autoptr (GError) error = NULL;
   GList *l;
-  
+
   resource = gom_repository_find_one_finish (repository, res, &error);
 
   if (resource != NULL)
     xdp_document_insert (XDP_DOCUMENT (resource));
-  
+
   for (l = call->pending; l != NULL; l = l->next)
     {
       GDBusMethodInvocation *invocation = l->data;
-      
+
       if (resource == NULL)
-	{
-	  if (g_error_matches (error, GOM_ERROR, GOM_ERROR_REPOSITORY_EMPTY_RESULT))
-	    g_dbus_method_invocation_return_error_literal (invocation,
-							   G_DBUS_ERROR,
-							   G_DBUS_ERROR_UNKNOWN_OBJECT,
-							   error->message);
-	  else
-	    g_dbus_method_invocation_return_gerror (invocation, error);
-	}
+        {
+          if (g_error_matches (error, GOM_ERROR, GOM_ERROR_REPOSITORY_EMPTY_RESULT))
+            g_dbus_method_invocation_return_error_literal (invocation,
+                                                           G_DBUS_ERROR,
+                                                           G_DBUS_ERROR_UNKNOWN_OBJECT,
+                                                           error->message);
+          else
+            g_dbus_method_invocation_return_gerror (invocation, error);
+        }
       else
-	xdp_document_handle_call (XDP_DOCUMENT (resource), invocation);
+        xdp_document_handle_call (XDP_DOCUMENT (resource), invocation);
     }
-  
+
   g_hash_table_remove (calls, &id);
 }
 
 static void
 document_method_call (GDBusConnection       *connection,
-		      const gchar           *sender,
-		      const gchar           *object_path,
-		      const gchar           *interface_name,
-		      const gchar           *method_name,
-		      GVariant              *parameters,
-		      GDBusMethodInvocation *invocation,
-		      gpointer               user_data)
+                      const gchar           *sender,
+                      const gchar           *object_path,
+                      const gchar           *interface_name,
+                      const gchar           *method_name,
+                      GVariant              *parameters,
+                      GDBusMethodInvocation *invocation,
+                      gpointer               user_data)
 {
   gint64 id = *(gint64*)user_data;
   XdpDocument *doc;
@@ -85,34 +85,34 @@ document_method_call (GDBusConnection       *connection,
     {
       call = g_hash_table_lookup (calls, &id);
       if (call == NULL)
-	{
-	  g_autoptr(GomFilter) filter = NULL;
-	  GValue value = { 0, };
+        {
+          g_autoptr(GomFilter) filter = NULL;
+          GValue value = { 0, };
 
-	  g_value_init (&value, G_TYPE_INT64);
-	  g_value_set_int64 (&value, id);
-	  filter = gom_filter_new_eq (XDP_TYPE_DOCUMENT, "id", &value);
-	  
-	  call = g_new0 (DocumentCall, 1);
-	  call->id = id;
-	  call->pending = g_list_append (call->pending, g_object_ref (invocation));
-	  
-	  g_hash_table_insert (calls, &call->id, call);
-	  gom_repository_find_one_async (repository, XDP_TYPE_DOCUMENT,
-					 filter,
-					 find_one_doc_cb, call);
-	}
+          g_value_init (&value, G_TYPE_INT64);
+          g_value_set_int64 (&value, id);
+          filter = gom_filter_new_eq (XDP_TYPE_DOCUMENT, "id", &value);
+
+          call = g_new0 (DocumentCall, 1);
+          call->id = id;
+          call->pending = g_list_append (call->pending, g_object_ref (invocation));
+
+          g_hash_table_insert (calls, &call->id, call);
+          gom_repository_find_one_async (repository, XDP_TYPE_DOCUMENT,
+                                         filter,
+                                         find_one_doc_cb, call);
+        }
       else
-	call->pending = g_list_append (call->pending, g_object_ref (invocation));
+        call->pending = g_list_append (call->pending, g_object_ref (invocation));
     }
 }
 
 const GDBusInterfaceVTable document_vtable =
-{
-  document_method_call,
-  NULL,
-  NULL
-};
+  {
+    document_method_call,
+    NULL,
+    NULL
+  };
 
 
 static gchar **
@@ -146,12 +146,12 @@ subtree_introspect (GDBusConnection       *connection,
     {
       id = g_ascii_strtoll (node, &end, 10);
       if (id != 0 && *end == 0)
-	{
-	  p = g_ptr_array_new ();
-	  g_ptr_array_add (p, g_dbus_interface_info_ref (xdp_dbus_document_interface_info ()));
-	  g_ptr_array_add (p, NULL);
-	  return (GDBusInterfaceInfo **) g_ptr_array_free (p, FALSE);
-	}
+        {
+          p = g_ptr_array_new ();
+          g_ptr_array_add (p, g_dbus_interface_info_ref (xdp_dbus_document_interface_info ()));
+          g_ptr_array_add (p, NULL);
+          return (GDBusInterfaceInfo **) g_ptr_array_free (p, FALSE);
+        }
     }
 
   return NULL;
@@ -185,11 +185,11 @@ subtree_dispatch (GDBusConnection             *connection,
 }
 
 const GDBusSubtreeVTable subtree_vtable =
-{
-  subtree_enumerate,
-  subtree_introspect,
-  subtree_dispatch
-};
+  {
+    subtree_enumerate,
+    subtree_introspect,
+    subtree_dispatch
+  };
 
 static void
 on_bus_acquired (GDBusConnection *connection,
@@ -219,7 +219,7 @@ on_bus_acquired (GDBusConnection *connection,
                                                         NULL,  /* user_data_free_func */
                                                         NULL); /* GError** */
 
-  
+
   g_assert (registration_id > 0);
 }
 
@@ -257,7 +257,7 @@ main (int    argc,
 
   /* Avoid even loading gvfs to avoid accidental confusion */
   g_setenv ("GIO_USE_VFS", "local", TRUE);
-  
+
   g_set_prgname (argv[0]);
 
   data_path = g_build_filename (g_get_user_data_dir(), "xdg-document-portal", NULL);
@@ -272,7 +272,7 @@ main (int    argc,
   uri = g_file_get_uri (db_file);
 
   calls = g_hash_table_new_full (g_int64_hash, g_int64_equal,
-				 NULL, (GDestroyNotify)document_call_free);
+                                 NULL, (GDestroyNotify)document_call_free);
 
   adapter = gom_adapter_new ();
   if (!gom_adapter_open_sync (adapter, uri, &error))
@@ -289,7 +289,7 @@ main (int    argc,
       g_printerr ("Failed to convert migrate database: %s\n", error->message);
       return 1;
     }
-  
+
   introspection_bytes = g_resources_lookup_data ("/org/freedesktop/portal/DocumentPortal/org.freedesktop.portal.documents.xml", 0, NULL);
   g_assert (introspection_bytes != NULL);
 

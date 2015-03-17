@@ -9,6 +9,7 @@
 
 #include "xdp-document.h"
 #include "xdp-error.h"
+#include "xdp-main.h"
 
 struct _XdpDocument
 {
@@ -143,6 +144,7 @@ xdp_document_get_id (XdpDocument *doc)
 static void
 xdp_document_handle_read (XdpDocument *doc,
                           GDBusMethodInvocation *invocation,
+                          const char *app_id,
                           GVariant *parameters)
 {
   const char *window;
@@ -190,6 +192,7 @@ struct {
   const char *args;
   void (*callback) (XdpDocument *doc,
                     GDBusMethodInvocation *invocation,
+                    const char *app_id,
                     GVariant *parameters);
 } doc_methods[] = {
   { "Read", "(s)", xdp_document_handle_read}
@@ -197,7 +200,8 @@ struct {
 
 void
 xdp_document_handle_call (XdpDocument *doc,
-                          GDBusMethodInvocation *invocation)
+                          GDBusMethodInvocation *invocation,
+                          const char *app_id)
 {
   const char *method_name = g_dbus_method_invocation_get_method_name (invocation);
   const gchar *interface_name = g_dbus_method_invocation_get_interface_name (invocation);
@@ -219,7 +223,7 @@ xdp_document_handle_call (XdpDocument *doc,
                 }
               else
                 {
-                  (doc_methods[i].callback) (doc, invocation, parameters);
+                  (doc_methods[i].callback) (doc, invocation, app_id, parameters);
                 }
               break;
             }
@@ -246,8 +250,15 @@ ensure_documents (void)
 XdpDocument *
 xdp_document_lookup (gint64 id)
 {
+  XdpDocument *doc;
   ensure_documents ();
-  return g_hash_table_lookup (documents, &id);
+
+  doc = g_hash_table_lookup (documents, &id);
+
+  if (doc)
+    g_object_ref (doc);
+
+  return doc;
 }
 
 void

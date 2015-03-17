@@ -18,7 +18,8 @@ gint64 xdp_document_get_id (XdpDocument *doc);
 
 
 void xdp_document_handle_call (XdpDocument *doc,
-                               GDBusMethodInvocation *invocation);
+                               GDBusMethodInvocation *invocation,
+                               const char *app_id);
 
 G_END_DECLS
 

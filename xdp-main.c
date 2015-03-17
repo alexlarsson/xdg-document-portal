@@ -6,22 +6,190 @@
 #include <gio/gio.h>
 #include <gom/gom.h>
 #include "xdp-dbus.h"
+#include "xdp-main.h"
 #include "xdp-document.h"
+#include "xdp-error.h"
 
 static GomRepository *repository = NULL;
 static GDBusNodeInfo *introspection_data = NULL;
 static GHashTable *calls;
+
+static GHashTable *app_ids;
 
 typedef struct {
   gint64 id;
   GList *pending;
 } DocumentCall;
 
+typedef struct {
+  char *name;
+  char *app_id;
+  gboolean exited;
+  GList *pending;
+} AppIdInfo;
+
+static void
+got_credentials_cb (GObject *source_object,
+                    GAsyncResult *res,
+                    gpointer user_data)
+{
+  AppIdInfo *info = user_data;
+  g_autoptr (GDBusMessage) reply = NULL;
+  g_autoptr (GError) error = NULL;
+  GList *l;
+
+  reply = g_dbus_connection_send_message_with_reply_finish (G_DBUS_CONNECTION (source_object),
+                                                            res, &error);
+
+  if (!info->exited && reply != NULL)
+    {
+      GVariant *body = g_dbus_message_get_body (reply);
+      guint32 pid;
+      g_autofree char *path = NULL;
+      g_autofree char *content = NULL;
+
+      g_variant_get (body, "(u)", &pid);
+
+      path = g_strdup_printf ("/proc/%u/cgroup", pid);
+
+      if (g_file_get_contents (path, &content, NULL, NULL))
+        {
+          gchar **lines =  g_strsplit (content, "\n", -1);
+          int i;
+
+          for (i = 0; lines[i] != NULL; i++)
+            {
+              if (g_str_has_prefix (lines[i], "1:name=systemd:"))
+                {
+                  const char *unit = lines[i] + strlen ("1:name=systemd:");
+                  g_autofree char *scope = g_path_get_basename (unit);
+
+                  if (g_str_has_prefix (scope, "xdg-app-") &&
+                      g_str_has_suffix (scope, ".scope"))
+                    {
+                      const char *name = scope + strlen("xdg-app-");
+                      char *dash = strchr (name, '-');
+                      if (dash != NULL)
+                        {
+                          *dash = 0;
+                          info->app_id = g_strdup (name);
+                        }
+                    }
+                  else
+                    info->app_id = g_strdup ("");
+                }
+            }
+          g_strfreev (lines);
+        }
+    }
+
+  for (l = info->pending; l != NULL; l = l->next)
+    {
+      GTask *task = l->data;
+
+      if (info->app_id == NULL)
+        g_task_return_new_error (task, XDP_ERROR, XDP_ERROR_FAILED,
+                                 "Can't find app id");
+      else
+        g_task_return_pointer (task, g_strdup (info->app_id), g_free);
+    }
+
+  g_list_free_full (info->pending, g_object_unref);
+  info->pending = NULL;
+
+  if (info->app_id == NULL)
+    g_hash_table_remove (app_ids, info->name);
+}
+
+void
+xdp_invocation_lookup_app_id (GDBusMethodInvocation *invocation,
+                              GCancellable          *cancellable,
+                              GAsyncReadyCallback    callback,
+                              gpointer               user_data)
+{
+  GDBusConnection *connection = g_dbus_method_invocation_get_connection (invocation);
+  const gchar *sender = g_dbus_method_invocation_get_sender (invocation);
+  GTask *task;
+  AppIdInfo *info;
+
+  task = g_task_new (invocation,
+                     cancellable,
+                     callback,
+                     user_data);
+
+  info = g_hash_table_lookup (app_ids, sender);
+
+  if (info == NULL)
+    {
+      info = g_new0 (AppIdInfo, 1);
+      info->name = g_strdup (sender);
+      g_hash_table_insert (app_ids, info->name, info);
+    }
+
+  if (info->app_id)
+    g_task_return_pointer (task, g_strdup (info->app_id), g_free);
+  else
+    {
+      if (info->pending == NULL)
+        {
+          g_autoptr (GDBusMessage) msg = g_dbus_message_new_method_call ("org.freedesktop.DBus",
+                                                                         "/org/freedesktop/DBus",
+                                                                         "org.freedesktop.DBus",
+                                                                         "GetConnectionUnixProcessID");
+          g_dbus_message_set_body (msg, g_variant_new ("(s)", sender));
+
+          g_dbus_connection_send_message_with_reply (connection, msg,
+                                                     G_DBUS_SEND_MESSAGE_FLAGS_NONE,
+                                                     30000,
+                                                     NULL,
+                                                     cancellable,
+                                                     got_credentials_cb,
+                                                     info);
+        }
+
+      info->pending = g_list_prepend (info->pending, task);
+    }
+}
+
+char *
+xdg_invocation_lookup_app_id_finish (GDBusMethodInvocation *invocation,
+                                     GAsyncResult    *result,
+                                     GError         **error)
+{
+  return g_task_propagate_pointer (G_TASK (result), error);
+}
+
+static void
+app_id_info_free (AppIdInfo *info)
+{
+  g_free (info->name);
+  g_free (info->app_id);
+  g_free (info);
+}
+
 static void
 document_call_free (DocumentCall *call)
 {
   g_list_free_full (call->pending, g_object_unref);
   g_free (call);
+}
+
+static void
+got_doc_app_id_cb (GObject *source_object,
+                   GAsyncResult *res,
+                   gpointer user_data)
+{
+  GDBusMethodInvocation *invocation = G_DBUS_METHOD_INVOCATION (source_object);
+  g_autoptr(XdpDocument) doc = user_data;
+  g_autoptr(GError) error = NULL;
+  char *app_id;
+
+  app_id = xdg_invocation_lookup_app_id_finish (invocation, res, &error);
+
+  if (app_id == NULL)
+    g_dbus_method_invocation_return_gerror (invocation, error);
+  else
+    xdp_document_handle_call (doc, invocation, app_id);
 }
 
 static void
@@ -55,7 +223,7 @@ find_one_doc_cb (GObject *source_object,
             g_dbus_method_invocation_return_gerror (invocation, error);
         }
       else
-        xdp_document_handle_call (XDP_DOCUMENT (resource), invocation);
+        xdp_invocation_lookup_app_id (invocation, NULL, got_doc_app_id_cb, g_object_ref (resource));
     }
 
   g_hash_table_remove (calls, &id);
@@ -72,7 +240,7 @@ document_method_call (GDBusConnection       *connection,
                       gpointer               user_data)
 {
   gint64 id = *(gint64*)user_data;
-  XdpDocument *doc;
+  g_autoptr(XdpDocument) doc;
   DocumentCall *call;
 
   g_free (user_data);
@@ -80,7 +248,7 @@ document_method_call (GDBusConnection       *connection,
   doc = xdp_document_lookup (id);
 
   if (doc)
-    xdp_document_handle_call (doc, invocation);
+    xdp_invocation_lookup_app_id (invocation, NULL, got_doc_app_id_cb, g_object_ref (doc));
   else
     {
       call = g_hash_table_lookup (calls, &id);
@@ -191,6 +359,34 @@ const GDBusSubtreeVTable subtree_vtable =
     subtree_dispatch
   };
 
+
+static void
+name_owner_changed (GDBusConnection  *connection,
+                    const gchar      *sender_name,
+                    const gchar      *object_path,
+                    const gchar      *interface_name,
+                    const gchar      *signal_name,
+                    GVariant         *parameters,
+                    gpointer          user_data)
+{
+  const char *name, *from, *to;
+  g_variant_get (parameters, "(sss)", &name, &from, &to);
+
+  if (name[0] == ':' &&
+      strcmp (name, from) == 0 &&
+      strcmp (to, "") == 0)
+    {
+      AppIdInfo *info = g_hash_table_lookup (app_ids, name);
+
+      if (info != NULL)
+        {
+          info->exited = TRUE;
+          if (info->pending == NULL)
+            g_hash_table_remove (app_ids, name);
+        }
+    }
+}
+
 static void
 on_bus_acquired (GDBusConnection *connection,
                  const gchar     *name,
@@ -201,6 +397,17 @@ on_bus_acquired (GDBusConnection *connection,
   guint registration_id;
 
   helper = xdp_dbus_document_portal_skeleton_new ();
+
+  g_dbus_connection_signal_subscribe (connection,
+                                      "org.freedesktop.DBus",
+                                      "org.freedesktop.DBus",
+                                      "NameOwnerChanged",
+                                      "/org/freedesktop/DBus",
+                                      NULL,
+                                      G_DBUS_SIGNAL_FLAGS_NONE,
+                                      name_owner_changed,
+                                      NULL, NULL);
+
 
   if (!g_dbus_interface_skeleton_export (G_DBUS_INTERFACE_SKELETON (helper),
                                          connection,
@@ -273,6 +480,9 @@ main (int    argc,
 
   calls = g_hash_table_new_full (g_int64_hash, g_int64_equal,
                                  NULL, (GDestroyNotify)document_call_free);
+
+  app_ids = g_hash_table_new_full (g_str_hash, g_str_equal,
+                                   NULL, (GDestroyNotify)app_id_info_free);
 
   adapter = gom_adapter_new ();
   if (!gom_adapter_open_sync (adapter, uri, &error))

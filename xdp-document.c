@@ -10,6 +10,7 @@
 #include "xdp-document.h"
 #include "xdp-error.h"
 #include "xdp-main.h"
+#include "xdp-permissions.h"
 
 struct _XdpDocument
 {
@@ -17,6 +18,8 @@ struct _XdpDocument
 
   gint64 id;
   char *uri;
+
+  GList *permissions;
 
   GList *updates;
 };
@@ -44,6 +47,7 @@ static GHashTable *loads;
 
 typedef struct {
   gint64 id;
+  XdpDocument *doc;
   GList *pending;
 } DocumentLoad;
 
@@ -428,8 +432,23 @@ static void
 document_load_free (DocumentLoad *load)
 {
   g_list_free_full (load->pending, g_object_unref);
+  g_clear_object (&load->doc);
   g_free (load);
 }
+
+static void
+document_load_abort (DocumentLoad *load, GError *error)
+{
+  GList *l;
+
+  for (l = load->pending; l != NULL; l = l->next)
+    {
+      GTask *task = l->data;
+      g_task_return_error (task, error);
+    }
+  g_hash_table_remove (loads, &load->id);
+}
+
 
 static void
 ensure_documents (void)
@@ -452,39 +471,93 @@ xdg_document_load_finish (GomRepository *repository,
 }
 
 static void
+fetch_permissions_cb (GObject *source_object,
+                      GAsyncResult *res,
+                      gpointer user_data)
+{
+  GomResourceGroup *group = GOM_RESOURCE_GROUP (source_object);
+  g_autoptr (GError) error = NULL;
+  DocumentLoad *load = user_data;
+  gint64 id = load->id;
+  GList *l;
+  int i;
+
+  if (!gom_resource_group_fetch_finish (group, res, &error))
+    {
+      document_load_abort (load, error);
+      return;
+    }
+
+  for (i = 0; i < gom_resource_group_get_count (group); i++)
+    {
+      GomResource *res = gom_resource_group_get_index (group, i);
+
+      load->doc->permissions = g_list_prepend (load->doc->permissions, g_object_ref (res));
+    }
+
+  g_hash_table_insert (documents, &load->doc->id, g_object_ref (load->doc));
+  for (l = load->pending; l != NULL; l = l->next)
+    {
+      GTask *task = l->data;
+
+      g_task_return_pointer (task, g_object_ref (load->doc), g_object_unref);
+    }
+
+  g_hash_table_remove (loads, &id);
+}
+
+static void
+find_permissions_cb (GObject *source_object,
+                     GAsyncResult *res,
+                     gpointer user_data)
+{
+  GomRepository *repository = GOM_REPOSITORY (source_object);
+  DocumentLoad *load = user_data;
+  g_autoptr (GError) error = NULL;
+  g_autoptr(GomResourceGroup) group = NULL;
+
+  group = gom_repository_find_finish (repository, res, &error);
+
+  if (group == NULL)
+    {
+      document_load_abort (load, error);
+      return;
+    }
+
+  gom_resource_group_fetch_async (group, 0, gom_resource_group_get_count (group),
+                                  fetch_permissions_cb, load);
+}
+
+static void
 find_one_doc_cb (GObject *source_object,
                  GAsyncResult *res,
                  gpointer user_data)
 {
   GomRepository *repository = GOM_REPOSITORY (source_object);
   DocumentLoad *load = user_data;
-  gint64 id = load->id;
   g_autoptr (XdpDocument) doc = NULL;
   g_autoptr (GError) error = NULL;
-  GList *l;
+  g_autoptr(GomFilter) filter = NULL;
+  GValue value = { 0, };
 
   doc = (XdpDocument *)gom_repository_find_one_finish (repository, res, &error);
 
   if (doc == NULL)
     {
-      for (l = load->pending; l != NULL; l = l->next)
-        {
-          GTask *task = l->data;
-
-          g_task_return_error (task, error);
-        }
-        g_hash_table_remove (loads, &id);
-        return;
+      document_load_abort (load, error);
+      return;
    }
 
-  g_hash_table_insert (documents, &doc->id, g_object_ref (doc));
-  for (l = load->pending; l != NULL; l = l->next)
-    {
-      GTask *task = l->data;
+  load->doc = g_object_ref (doc);
 
-      g_task_return_pointer (task, g_object_ref (doc), g_object_unref);
-    }
-  g_hash_table_remove (loads, &id);
+  g_value_init (&value, G_TYPE_INT64);
+  g_value_set_int64 (&value, doc->id);
+  filter = gom_filter_new_eq (XDP_TYPE_PERMISSIONS, "document", &value);
+
+  gom_repository_find_async (repository, XDP_TYPE_PERMISSIONS,
+                             filter,
+                             find_permissions_cb, load);
+
 }
 
 void

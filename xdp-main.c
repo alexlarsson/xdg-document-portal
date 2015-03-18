@@ -13,14 +13,8 @@
 
 static GomRepository *repository = NULL;
 static GDBusNodeInfo *introspection_data = NULL;
-static GHashTable *calls;
 
 static GHashTable *app_ids;
-
-typedef struct {
-  gint64 id;
-  GList *pending;
-} DocumentCall;
 
 typedef struct {
   char *name;
@@ -169,13 +163,6 @@ app_id_info_free (AppIdInfo *info)
 }
 
 static void
-document_call_free (DocumentCall *call)
-{
-  g_list_free_full (call->pending, g_object_unref);
-  g_free (call);
-}
-
-static void
 got_doc_app_id_cb (GObject *source_object,
                    GAsyncResult *res,
                    gpointer user_data)
@@ -194,41 +181,31 @@ got_doc_app_id_cb (GObject *source_object,
 }
 
 static void
-find_one_doc_cb (GObject *source_object,
+got_document_cb (GObject *source_object,
                  GAsyncResult *res,
                  gpointer user_data)
 {
-  DocumentCall *call = user_data;
-  gint64 id = call->id;
-  g_autoptr (GomResource) resource = NULL;
-  g_autoptr (GError) error = NULL;
-  GList *l;
+  g_autoptr(GError) error = NULL;
+  g_autoptr(XdpDocument) doc = NULL;
+  g_autoptr(GDBusMethodInvocation) invocation = user_data;
 
-  resource = gom_repository_find_one_finish (repository, res, &error);
+  doc = xdg_document_load_finish (repository, res, &error);
 
-  if (resource != NULL)
-    xdp_document_insert (XDP_DOCUMENT (resource));
-
-  for (l = call->pending; l != NULL; l = l->next)
+  if (doc == NULL)
     {
-      GDBusMethodInvocation *invocation = l->data;
-
-      if (resource == NULL)
-        {
-          if (g_error_matches (error, GOM_ERROR, GOM_ERROR_REPOSITORY_EMPTY_RESULT))
-            g_dbus_method_invocation_return_error_literal (invocation,
-                                                           G_DBUS_ERROR,
-                                                           G_DBUS_ERROR_UNKNOWN_OBJECT,
-                                                           error->message);
-          else
-            g_dbus_method_invocation_return_gerror (invocation, error);
-        }
-      else
-        xdp_invocation_lookup_app_id (invocation, NULL, got_doc_app_id_cb, g_object_ref (resource));
+      if (g_error_matches (error, GOM_ERROR, GOM_ERROR_REPOSITORY_EMPTY_RESULT))
+        g_dbus_method_invocation_return_error_literal (invocation,
+                                                       G_DBUS_ERROR,
+                                                       G_DBUS_ERROR_UNKNOWN_OBJECT,
+                                                       error->message);
+      else /* TODO: Use real dbus errors */
+        g_dbus_method_invocation_return_gerror (invocation, error);
     }
-
-  g_hash_table_remove (calls, &id);
+  else
+    xdp_invocation_lookup_app_id (invocation, NULL, got_doc_app_id_cb, g_object_ref (doc));
 }
+
+
 
 static void
 document_method_call (GDBusConnection       *connection,
@@ -241,39 +218,10 @@ document_method_call (GDBusConnection       *connection,
                       gpointer               user_data)
 {
   gint64 id = *(gint64*)user_data;
-  g_autoptr(XdpDocument) doc;
-  DocumentCall *call;
 
   g_free (user_data);
 
-  doc = xdp_document_lookup (id);
-
-  if (doc)
-    xdp_invocation_lookup_app_id (invocation, NULL, got_doc_app_id_cb, g_object_ref (doc));
-  else
-    {
-      call = g_hash_table_lookup (calls, &id);
-      if (call == NULL)
-        {
-          g_autoptr(GomFilter) filter = NULL;
-          GValue value = { 0, };
-
-          g_value_init (&value, G_TYPE_INT64);
-          g_value_set_int64 (&value, id);
-          filter = gom_filter_new_eq (XDP_TYPE_DOCUMENT, "id", &value);
-
-          call = g_new0 (DocumentCall, 1);
-          call->id = id;
-          call->pending = g_list_append (call->pending, g_object_ref (invocation));
-
-          g_hash_table_insert (calls, &call->id, call);
-          gom_repository_find_one_async (repository, XDP_TYPE_DOCUMENT,
-                                         filter,
-                                         find_one_doc_cb, call);
-        }
-      else
-        call->pending = g_list_append (call->pending, g_object_ref (invocation));
-    }
+  xdp_document_load (repository, id, NULL, got_document_cb, g_object_ref (invocation));
 }
 
 const GDBusInterfaceVTable document_vtable =
@@ -479,9 +427,6 @@ main (int    argc,
   db_file = g_file_get_child (data_dir, "main.db");
   uri = g_file_get_uri (db_file);
 
-  calls = g_hash_table_new_full (g_int64_hash, g_int64_equal,
-                                 NULL, (GDestroyNotify)document_call_free);
-
   app_ids = g_hash_table_new_full (g_str_hash, g_str_equal,
                                    NULL, (GDestroyNotify)app_id_info_free);
 
@@ -494,8 +439,8 @@ main (int    argc,
 
   repository = gom_repository_new (adapter);
 
-  object_types = g_list_prepend (NULL, GINT_TO_POINTER(XDP_TYPE_DOCUMENT));
-  object_types = g_list_prepend (NULL, GINT_TO_POINTER(XDP_TYPE_PERMISSIONS));
+  object_types = g_list_prepend (object_types, GINT_TO_POINTER(XDP_TYPE_DOCUMENT));
+  object_types = g_list_prepend (object_types, GINT_TO_POINTER(XDP_TYPE_PERMISSIONS));
 
   if (!gom_repository_automatic_migrate_sync (repository, 1, object_types, &error))
     {

@@ -40,6 +40,12 @@ enum {
 static GParamSpec *gParamSpecs [LAST_PROP];
 
 static GHashTable *documents;
+static GHashTable *loads;
+
+typedef struct {
+  gint64 id;
+  GList *pending;
+} DocumentLoad;
 
 static void
 xdp_document_finalize (GObject *object)
@@ -419,30 +425,112 @@ xdp_document_handle_call (XdpDocument *doc,
 }
 
 static void
+document_load_free (DocumentLoad *load)
+{
+  g_list_free_full (load->pending, g_object_unref);
+  g_free (load);
+}
+
+static void
 ensure_documents (void)
 {
   if (documents == NULL)
     documents = g_hash_table_new_full (g_int64_hash, g_int64_equal,
                                        NULL, g_object_unref);
+
+  if (loads == NULL)
+    loads = g_hash_table_new_full (g_int64_hash, g_int64_equal,
+                                   NULL, (GDestroyNotify)document_load_free);
 }
 
 XdpDocument *
-xdp_document_lookup (gint64 id)
+xdg_document_load_finish (GomRepository *repository,
+                          GAsyncResult    *result,
+                          GError         **error)
+{
+  return g_task_propagate_pointer (G_TASK (result), error);
+}
+
+static void
+find_one_doc_cb (GObject *source_object,
+                 GAsyncResult *res,
+                 gpointer user_data)
+{
+  GomRepository *repository = GOM_REPOSITORY (source_object);
+  DocumentLoad *load = user_data;
+  gint64 id = load->id;
+  g_autoptr (XdpDocument) doc = NULL;
+  g_autoptr (GError) error = NULL;
+  GList *l;
+
+  doc = (XdpDocument *)gom_repository_find_one_finish (repository, res, &error);
+
+  if (doc == NULL)
+    {
+      for (l = load->pending; l != NULL; l = l->next)
+        {
+          GTask *task = l->data;
+
+          g_task_return_error (task, error);
+        }
+        g_hash_table_remove (loads, &id);
+        return;
+   }
+
+  g_hash_table_insert (documents, &doc->id, g_object_ref (doc));
+  for (l = load->pending; l != NULL; l = l->next)
+    {
+      GTask *task = l->data;
+
+      g_task_return_pointer (task, g_object_ref (doc), g_object_unref);
+    }
+  g_hash_table_remove (loads, &id);
+}
+
+void
+xdp_document_load (GomRepository      *repository,
+                   gint64              id,
+                   GCancellable       *cancellable,
+                   GAsyncReadyCallback callback,
+                   gpointer            user_data)
 {
   XdpDocument *doc;
+  DocumentLoad *load;
+  g_autoptr (GTask) task = NULL;
+
   ensure_documents ();
+
+  task = g_task_new (repository,
+                     cancellable,
+                     callback,
+                     user_data);
 
   doc = g_hash_table_lookup (documents, &id);
 
   if (doc)
-    g_object_ref (doc);
+    g_task_return_pointer (task, g_object_ref (doc), g_object_unref);
+  else
+    {
+      load = g_hash_table_lookup (loads, &id);
+      if (load == NULL)
+        {
+          g_autoptr(GomFilter) filter = NULL;
+          GValue value = { 0, };
 
-  return doc;
-}
+          g_value_init (&value, G_TYPE_INT64);
+          g_value_set_int64 (&value, id);
+          filter = gom_filter_new_eq (XDP_TYPE_DOCUMENT, "id", &value);
 
-void
-xdp_document_insert (XdpDocument *doc)
-{
-  ensure_documents ();
-  g_hash_table_insert (documents, &doc->id, g_object_ref (doc));
+          load = g_new0 (DocumentLoad, 1);
+          load->id = id;
+          load->pending = g_list_append (load->pending, g_object_ref (task));
+
+          g_hash_table_insert (loads, &load->id, load);
+          gom_repository_find_one_async (repository, XDP_TYPE_DOCUMENT,
+                                         filter,
+                                         find_one_doc_cb, load);
+        }
+      else
+        load->pending = g_list_append (load->pending, g_object_ref (task));
+    }
 }

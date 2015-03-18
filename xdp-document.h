@@ -2,6 +2,7 @@
 #define XDP_DOCUMENT_H
 
 #include <gom/gom.h>
+#include "xdp-enums.h"
 
 G_BEGIN_DECLS
 
@@ -14,6 +15,8 @@ XdpDocument *xdp_document_new (GomRepository *repo,
 
 gint64 xdp_document_get_id (XdpDocument *doc);
 
+XdpPermissionFlags xdp_document_get_permissions (XdpDocument *doc,
+                                                 const char *app_id);
 
 void xdp_document_handle_call (XdpDocument *doc,
                                GDBusMethodInvocation *invocation,

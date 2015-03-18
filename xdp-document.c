@@ -160,6 +160,38 @@ xdp_document_get_id (XdpDocument *doc)
   return doc->id;
 }
 
+XdpPermissionFlags
+xdp_document_get_permissions (XdpDocument *doc,
+                              const char *app_id)
+{
+  XdpPermissionFlags flags = 0;
+  GList *l;
+
+  if (*app_id == 0)
+    return XDP_PERMISSION_FLAGS_ALL;
+
+  for (l = doc->permissions; l != NULL; l = l->next)
+    {
+      XdpPermissions *permissions = l->data;
+      if (strcmp (xdp_permissions_get_app_id (permissions), app_id) == 0)
+        flags |= xdp_permissions_get_permissions (permissions);
+    }
+
+  return flags;
+}
+
+gboolean
+xdp_document_has_permissions (XdpDocument *doc,
+                              const char *app_id,
+                              XdpPermissionFlags perms)
+{
+  XdpPermissionFlags flags;
+
+  flags = xdp_document_get_permissions (doc, app_id);
+
+  return (flags & perms) == perms;
+}
+
 static void
 xdp_document_handle_read (XdpDocument *doc,
                           GDBusMethodInvocation *invocation,
@@ -175,6 +207,13 @@ xdp_document_handle_read (XdpDocument *doc,
   GVariant *retval;
 
   g_variant_get (parameters, "(s)", &window);
+
+  if (!xdp_document_has_permissions (doc, app_id, XDP_PERMISSION_FLAGS_READ))
+    {
+      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+                                             "No permissions to open file");
+      return;
+    }
 
   file = g_file_new_for_uri (doc->uri);
   path = g_file_get_path (file);
@@ -233,6 +272,13 @@ xdp_document_handle_prepare_update (XdpDocument *doc,
   XdpDocumentUpdate *update;
 
   g_variant_get (parameters, "(ss^as)", &window, &etag, &flags);
+
+  if (!xdp_document_has_permissions (doc, app_id, XDP_PERMISSION_FLAGS_WRITE))
+    {
+      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+                                             "No permissions to open file");
+      return;
+    }
 
   file = g_file_new_for_uri (doc->uri);
   path = g_file_get_path (file);
@@ -312,6 +358,13 @@ xdp_document_handle_finish_update (XdpDocument *doc,
   GList *l;
 
   g_variant_get (parameters, "(su)", &window, &id);
+
+  if (!xdp_document_has_permissions (doc, app_id, XDP_PERMISSION_FLAGS_WRITE))
+    {
+      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+                                             "No permissions to open file");
+      return;
+    }
 
   for (l = doc->updates; l != NULL; l = l->next)
     {

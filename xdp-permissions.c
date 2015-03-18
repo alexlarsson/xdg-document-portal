@@ -199,19 +199,19 @@ xdp_permissions_new (GomRepository *repo,
 }
 
 gint64
-xdp_permissions_get_id (XdpPermissions *doc)
+xdp_permissions_get_id (XdpPermissions *permissions)
 {
-  return doc->id;
+  return permissions->id;
 }
 
 const char *
-xdp_permissions_get_app_id (XdpPermissions *doc)
+xdp_permissions_get_app_id (XdpPermissions *permissions)
 {
-  return doc->app_id;
+  return permissions->app_id;
 }
 
 XdpPermissionFlags
-xdp_permissions_get_permissions (XdpPermissions *doc)
+xdp_permissions_get_permissions (XdpPermissions *permissions)
 {
-  return (XdpPermissionFlags)doc->permissions;
+  return (XdpPermissionFlags)permissions->permissions;
 }

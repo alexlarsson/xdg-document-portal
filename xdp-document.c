@@ -17,7 +17,16 @@ struct _XdpDocument
 
   gint64 id;
   char *uri;
+
+  GList *updates;
 };
+
+typedef struct
+{
+  int fd;
+  char *owner;
+} XdpDocumentUpdate;
+
 
 G_DEFINE_TYPE(XdpDocument, xdp_document, GOM_TYPE_RESOURCE)
 
@@ -187,6 +196,174 @@ xdp_document_handle_read (XdpDocument *doc,
     g_object_unref (fd_list);
 }
 
+static void
+document_update_free (XdpDocumentUpdate *update)
+{
+  close (update->fd);
+  g_free (update->owner);
+  g_free (update);
+}
+
+static void
+xdp_document_handle_prepare_update (XdpDocument *doc,
+                                    GDBusMethodInvocation *invocation,
+                                    const char *app_id,
+                                    GVariant *parameters)
+{
+  const char *window, *etag, **flags;
+  g_autoptr(GFile) file = NULL;
+  g_autofree char *path = NULL;
+  g_autofree char *dir = NULL;
+  g_autofree char *basename = NULL;
+  g_autofree char *template = NULL;
+  GUnixFDList *fd_list = NULL;
+  g_autoptr(GError) error = NULL;
+  int fd = -1, ro_fd = -1, fd_id;
+  GVariant *retval;
+  XdpDocumentUpdate *update;
+
+  g_variant_get (parameters, "(ss^as)", &window, &etag, &flags);
+
+  file = g_file_new_for_uri (doc->uri);
+  path = g_file_get_path (file);
+  basename = g_file_get_basename (file);
+  dir = g_path_get_dirname (path);
+  template = g_strconcat (dir, "/.", basename, ".XXXXXX", NULL);
+
+  fd = g_mkstemp_full (template, O_RDWR, 0600);
+  if (fd == -1)
+    {
+      int errsv = errno;
+      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+                                             "Unable to open temp storage: %s", strerror(errsv));
+      goto out;
+    }
+
+  ro_fd = open (template, O_RDONLY);
+  if (ro_fd == -1)
+    {
+      int errsv = errno;
+      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+                                             "Unable to reopen temp storage: %s", strerror(errsv));
+      goto out;
+    }
+
+  if (unlink (template))
+    {
+      int errsv = errno;
+      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+                                             "Unable to unlink temp storage: %s", strerror(errsv));
+      goto out;
+    }
+
+  fd_list = g_unix_fd_list_new ();
+  fd_id = g_unix_fd_list_append (fd_list, fd, &error);
+  if (fd_id == -1)
+    {
+      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+                                             "Unable to append fd: %s", error->message);
+      goto out;
+    }
+
+  update = g_new0 (XdpDocumentUpdate, 1);
+  update->fd = ro_fd;
+  ro_fd = -1;
+  update->owner = g_strdup (g_dbus_method_invocation_get_sender (invocation));
+
+  doc->updates = g_list_append (doc->updates, update);
+
+  retval = g_variant_new ("(uh)", update->fd, fd_id);
+  g_dbus_method_invocation_return_value_with_unix_fd_list (invocation, retval, fd_list);
+
+ out:
+  if (ro_fd != -1)
+    close (ro_fd);
+  if (fd != -1)
+    close (fd);
+  if (fd_list)
+    g_object_unref (fd_list);
+}
+
+static void
+xdp_document_handle_finish_update (XdpDocument *doc,
+                                   GDBusMethodInvocation *invocation,
+                                   const char *app_id,
+                                   GVariant *parameters)
+{
+  const char *window;
+  guint32 id;
+  g_autoptr(GError) error = NULL;
+  g_autoptr(GFile) dest = NULL;
+  g_autoptr(GFileOutputStream) output = NULL;
+  XdpDocumentUpdate *update = NULL;
+  GVariant *retval;
+  gssize n_read;
+  char buffer[8192];
+  GList *l;
+
+  g_variant_get (parameters, "(su)", &window, &id);
+
+  for (l = doc->updates; l != NULL; l = l->next)
+    {
+      XdpDocumentUpdate *l_update = l->data;
+
+      if (l_update->fd == id)
+        {
+          update = l_update;
+          break;
+        }
+    }
+
+  if (update == NULL ||
+      strcmp (update->owner, g_dbus_method_invocation_get_sender (invocation)) != 0)
+    {
+      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+                                             "No such update to finish");
+      return;
+    }
+
+  doc->updates = g_list_remove (doc->updates, update);
+
+  dest = g_file_new_for_uri (doc->uri);
+  output = g_file_replace (dest, NULL, FALSE, 0, NULL, &error);
+  if (output == NULL)
+    {
+      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+                                             "%s", error->message);
+      goto out;
+    }
+
+  do
+    {
+      do
+        n_read = read (update->fd, buffer, sizeof (buffer));
+      while (n_read == -1 && errno == EINTR);
+      if (n_read == -1)
+        {
+          g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+                                                 "Error reading file");
+          goto out;
+        }
+
+      if (n_read == 0)
+        break;
+
+      if (!g_output_stream_write_all (G_OUTPUT_STREAM (output), buffer, n_read, NULL, NULL, &error))
+        {
+          g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+                                                 "Error writing file: %s", error->message);
+          goto out;
+        }
+    }
+  while (1);
+
+  retval = g_variant_new ("()");
+  g_dbus_method_invocation_return_value (invocation, retval);
+
+ out:
+  document_update_free (update);
+}
+
 struct {
   const char *name;
   const char *args;
@@ -195,7 +372,9 @@ struct {
                     const char *app_id,
                     GVariant *parameters);
 } doc_methods[] = {
-  { "Read", "(s)", xdp_document_handle_read}
+  { "Read", "(s)", xdp_document_handle_read},
+  { "PrepareUpdate", "(ssas)", xdp_document_handle_prepare_update},
+  { "FinishUpdate", "(su)", xdp_document_handle_finish_update}
 };
 
 void

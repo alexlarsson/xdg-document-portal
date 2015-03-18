@@ -29,3 +29,5 @@ stamp-*
 xdp-resources.[ch]
 xdp-dbus.[ch]
 xdg-document-portal
+xdp-cat
+xdp-update

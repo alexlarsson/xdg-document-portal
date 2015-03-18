@@ -5,6 +5,7 @@ AM_CPPFLAGS =						\
 
 noinst_PROGRAMS = \
 	xdp-cat \
+	xdp-update \
 	$(NULL)
 
 libexec_PROGRAMS = \
@@ -61,3 +62,11 @@ xdp_cat_SOURCES = \
 
 xdp_cat_LDADD = $(BASE_LIBS)
 xdp_cat_CFLAGS = $(BASE_CFLAGS)
+
+xdp_update_SOURCES = \
+	xdp-update.c		\
+	$(dbus_built_sources)	\
+	$(NULL)
+
+xdp_update_LDADD = $(BASE_LIBS)
+xdp_update_CFLAGS = $(BASE_CFLAGS)

@@ -45,6 +45,8 @@ xdg_document_portal_SOURCES = \
 	xdp-main.c		\
 	xdp-document.c		\
 	xdp-document.h		\
+	xdp-permissions.c	\
+	xdp-permissions.h	\
 	xdp-error.c		\
 	xdp-error.h		\
 	$(dbus_built_sources)	\

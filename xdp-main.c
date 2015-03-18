@@ -8,6 +8,7 @@
 #include "xdp-dbus.h"
 #include "xdp-main.h"
 #include "xdp-document.h"
+#include "xdp-permissions.h"
 #include "xdp-error.h"
 
 static GomRepository *repository = NULL;
@@ -494,6 +495,8 @@ main (int    argc,
   repository = gom_repository_new (adapter);
 
   object_types = g_list_prepend (NULL, GINT_TO_POINTER(XDP_TYPE_DOCUMENT));
+  object_types = g_list_prepend (NULL, GINT_TO_POINTER(XDP_TYPE_PERMISSIONS));
+
   if (!gom_repository_automatic_migrate_sync (repository, 1, object_types, &error))
     {
       g_printerr ("Failed to convert migrate database: %s\n", error->message);

@@ -371,12 +371,11 @@ content_chooser_done (GObject *object,
   if (uri[strlen (uri) - 1] == '\n')
     uri[strlen (uri) - 1] = '\0';
 
-  doc = xdp_document_new (repository, uri);
-  if (!gom_resource_save_sync (GOM_RESOURCE (doc), &error))
+  doc = xdp_document_for_uri (repository, uri, &error);
+  if (doc == NULL)
     {
-      g_dbus_method_invocation_return_error (data->invocation, XDP_ERROR, XDP_ERROR_FAILED, "failed to save: %s", error->message);
-      g_object_unref (doc);
-      return;
+       g_dbus_method_invocation_return_error (data->invocation, XDP_ERROR, XDP_ERROR_FAILED, "failed to store: %s", error->message);
+       return;
     }
 
   /* TODO set permissions */

@@ -378,7 +378,8 @@ content_chooser_done (GObject *object,
        return;
     }
 
-  /* TODO set permissions */
+  xdp_document_grant_permissions (doc, data->app_id, XDP_PERMISSION_FLAGS_ALL);
+
   g_print ("document: %s id: %ld app id: %s\n", uri, xdp_document_get_id (doc), data->app_id);
 
   g_dbus_method_invocation_return_value (data->invocation, g_variant_new ("(x)", xdp_document_get_id (doc)));

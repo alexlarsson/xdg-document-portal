@@ -17,6 +17,9 @@ gint64 xdp_document_get_id (XdpDocument *doc);
 
 XdpPermissionFlags xdp_document_get_permissions (XdpDocument *doc,
                                                  const char *app_id);
+void xdp_document_grant_permissions (XdpDocument *doc,
+                                     const char *app_id,
+                                     XdpPermissionFlags perms);
 
 void xdp_document_handle_call (XdpDocument *doc,
                                GDBusMethodInvocation *invocation,

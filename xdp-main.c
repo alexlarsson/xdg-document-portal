@@ -350,7 +350,7 @@ content_chooser_done (GObject *object,
   g_autofree ContentChooserData *data = user_data;
   g_autoptr (GBytes) stdout_buf = NULL;
   g_autoptr (GError) error = NULL;
-  g_autofree char *uri = NULL;
+  const char *uri;
   XdpDocument *doc;
 
   if (!g_subprocess_communicate_finish (subprocess, result, &stdout_buf, NULL, &error))
@@ -366,10 +366,7 @@ content_chooser_done (GObject *object,
       return;
     }
 
-  uri = g_strconcat ("file://", g_bytes_get_data (stdout_buf, NULL), NULL);
-  /* strip newline emitted by zenity */
-  if (uri[strlen (uri) - 1] == '\n')
-    uri[strlen (uri) - 1] = '\0';
+  uri = g_bytes_get_data (stdout_buf, NULL);
 
   doc = xdp_document_for_uri (repository, uri, &error);
   if (doc == NULL)
@@ -391,12 +388,11 @@ open_content_chooser (GDBusMethodInvocation *invocation,
 {
   GSubprocess *subprocess;
   g_autoptr (GError) error = NULL;
-  const char *args[3];
+  const char *args[2];
   ContentChooserData *data;
 
-  args[0] = "zenity";
-  args[1] = "--file-selection";
-  args[2] = NULL;
+  args[0] = LIBEXECDIR "/xdg-content-chooser";
+  args[1] = NULL;
 
   subprocess = g_subprocess_newv (args, G_SUBPROCESS_FLAGS_STDOUT_PIPE, &error);
   if (subprocess == NULL)

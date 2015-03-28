@@ -336,6 +336,108 @@ name_owner_changed (GDBusConnection  *connection,
     }
 }
 
+typedef struct {
+  GDBusMethodInvocation *invocation;
+  const char *app_id;
+} ContentChooserData;
+
+static void
+content_chooser_done (GObject *object,
+                      GAsyncResult *result,
+                      gpointer user_data)
+{
+  g_autoptr (GSubprocess) subprocess = G_SUBPROCESS (object);
+  g_autofree ContentChooserData *data = user_data;
+  g_autoptr (GBytes) stdout_buf = NULL;
+  g_autoptr (GError) error = NULL;
+  g_autofree char *uri = NULL;
+  XdpDocument *doc;
+
+  if (!g_subprocess_communicate_finish (subprocess, result, &stdout_buf, NULL, &error))
+    {
+      g_dbus_method_invocation_return_error (data->invocation, XDP_ERROR, XDP_ERROR_FAILED, "content chooser failed: %s", error->message);
+      return;
+    }
+
+  if (!g_subprocess_get_if_exited (subprocess) ||
+      g_subprocess_get_exit_status (subprocess) != 0)
+    {
+      g_dbus_method_invocation_return_error (data->invocation, XDP_ERROR, XDP_ERROR_FAILED, "content chooser exit %d", g_subprocess_get_exit_status (subprocess));
+      return;
+    }
+
+  uri = g_strconcat ("file://", g_bytes_get_data (stdout_buf, NULL), NULL);
+  /* strip newline emitted by zenity */
+  if (uri[strlen (uri) - 1] == '\n')
+    uri[strlen (uri) - 1] = '\0';
+
+  doc = xdp_document_new (repository, uri);
+  if (!gom_resource_save_sync (GOM_RESOURCE (doc), &error))
+    {
+      g_dbus_method_invocation_return_error (data->invocation, XDP_ERROR, XDP_ERROR_FAILED, "failed to save: %s", error->message);
+      g_object_unref (doc);
+      return;
+    }
+
+  /* TODO set permissions */
+  g_print ("document: %s id: %ld app id: %s\n", uri, xdp_document_get_id (doc), data->app_id);
+
+  g_dbus_method_invocation_return_value (data->invocation, g_variant_new ("(x)", xdp_document_get_id (doc)));
+}
+
+static void
+open_content_chooser (GDBusMethodInvocation *invocation,
+                      const char *app_id)
+{
+  GSubprocess *subprocess;
+  g_autoptr (GError) error = NULL;
+  const char *args[3];
+  ContentChooserData *data;
+
+  args[0] = "zenity";
+  args[1] = "--file-selection";
+  args[2] = NULL;
+
+  subprocess = g_subprocess_newv (args, G_SUBPROCESS_FLAGS_STDOUT_PIPE, &error);
+  if (subprocess == NULL)
+    {
+      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED, "failed to start content chooser: %s", error->message);
+      return;
+    }
+
+  data = g_new (ContentChooserData, 1);
+  data->invocation = invocation;
+  data->app_id = app_id;
+
+  g_subprocess_communicate_async (subprocess, NULL, NULL, content_chooser_done, data);
+}
+
+static void
+got_app_id_cb (GObject *source_object,
+               GAsyncResult *res,
+               gpointer user_data)
+{
+  GDBusMethodInvocation *invocation = G_DBUS_METHOD_INVOCATION (source_object);
+  g_autoptr(GError) error = NULL;
+  char *app_id;
+
+  app_id = xdg_invocation_lookup_app_id_finish (invocation, res, &error);
+
+  if (app_id == NULL)
+    g_dbus_method_invocation_return_gerror (invocation, error);
+  else
+    open_content_chooser (invocation, app_id);
+}
+
+static gboolean
+handle_open_document (XdpDbusDocumentPortal *portal,
+                      GDBusMethodInvocation *invocation,
+                      const char            *type)
+{
+  xdp_invocation_lookup_app_id (invocation, NULL, got_app_id_cb, NULL);
+  return TRUE;
+}
+
 static void
 on_bus_acquired (GDBusConnection *connection,
                  const gchar     *name,
@@ -347,6 +449,9 @@ on_bus_acquired (GDBusConnection *connection,
 
   helper = xdp_dbus_document_portal_skeleton_new ();
 
+  g_signal_connect (helper, "handle-open-document",
+                    G_CALLBACK (handle_open_document), NULL);
+
   g_dbus_connection_signal_subscribe (connection,
                                       "org.freedesktop.DBus",
                                       "org.freedesktop.DBus",
@@ -356,7 +461,6 @@ on_bus_acquired (GDBusConnection *connection,
                                       G_DBUS_SIGNAL_FLAGS_NONE,
                                       name_owner_changed,
                                       NULL, NULL);
-
 
   if (!g_dbus_interface_skeleton_export (G_DBUS_INTERFACE_SKELETON (helper),
                                          connection,

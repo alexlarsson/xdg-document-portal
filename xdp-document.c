@@ -738,3 +738,39 @@ xdp_document_load (GomRepository      *repository,
         load->pending = g_list_append (load->pending, g_object_ref (task));
     }
 }
+
+static void
+document_saved (GObject *source_object,
+                GAsyncResult *result,
+                gpointer data)
+{
+  GomResource *resource = GOM_RESOURCE (source_object);
+  g_autoptr (GError) error = NULL;
+
+  if (!gom_resource_save_finish (resource, result, &error))
+    g_warning ("Failed to save document: %s", error->message);
+}
+
+XdpDocument *
+xdp_document_for_uri (GomRepository *repo,
+                      const char *uri,
+                      GError **error)
+{
+  GHashTableIter iter;
+  XdpDocument *doc;
+
+  ensure_documents ();
+
+  g_hash_table_iter_init (&iter, documents);
+  while (g_hash_table_iter_next (&iter, NULL, (gpointer *)&doc))
+    {
+      if (strcmp (uri, doc->uri) == 0)
+        return doc;
+    }
+
+  doc = xdp_document_new (repo, uri);
+  g_hash_table_insert (documents, &doc->id, doc);
+  gom_resource_save_async (GOM_RESOURCE (doc), document_saved, NULL);
+
+  return doc;
+}

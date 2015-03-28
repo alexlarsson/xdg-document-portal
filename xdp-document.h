@@ -39,6 +39,14 @@ void xdp_document_load (GomRepository      *repository,
 XdpDocument * xdg_document_load_finish (GomRepository *repository,
                                         GAsyncResult    *result,
                                         GError         **error);
+void xdp_document_for_uri (GomRepository      *repository,
+                           const char         *uri,
+                           GCancellable       *cancellable,
+                           GAsyncReadyCallback callback,
+                           gpointer            user_data);
+XdpDocument * xdp_document_for_uri_finish (GomRepository *repository,
+                                           GAsyncResult    *result,
+                                           GError         **error);
 
 G_END_DECLS
 

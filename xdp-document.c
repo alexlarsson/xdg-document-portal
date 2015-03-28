@@ -462,7 +462,7 @@ xdp_document_handle_grant_permissions (XdpDocument *doc,
   XdpPermissionFlags perms;
   gint i;
 
-  g_variant_get (parameters, "(sas)", &target_app_id, &permissions);
+  g_variant_get (parameters, "(&s^a&s)", &target_app_id, &permissions);
 
   if (!xdp_document_has_permissions (doc, app_id, XDP_PERMISSION_FLAGS_GRANT_PERMISSIONS))
     {

@@ -565,7 +565,10 @@ document_load_abort (DocumentLoad *load, GError *error)
   for (l = load->pending; l != NULL; l = l->next)
     {
       GTask *task = l->data;
-      g_task_return_error (task, error);
+      if (error)
+        g_task_return_new_error (task, error->domain, error->code, error->message);
+      else
+        g_task_return_new_error (task, XDP_ERROR, XDP_ERROR_FAILED, "Loading document failed");
     }
   g_hash_table_remove (loads, &load->id);
 }

@@ -13,6 +13,10 @@ G_DECLARE_FINAL_TYPE(XdpDocument, xdp_document, XDP, DOCUMENT, GomResource);
 XdpDocument *xdp_document_new (GomRepository *repo,
                                const char *uri);
 
+XdpDocument *xdp_document_for_uri (GomRepository *repo,
+                                   const char *uri,
+                                   GError **error);
+
 gint64 xdp_document_get_id (XdpDocument *doc);
 
 XdpPermissionFlags xdp_document_get_permissions (XdpDocument *doc,

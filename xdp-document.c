@@ -728,3 +728,32 @@ xdp_document_load (GomRepository      *repository,
         load->pending = g_list_append (load->pending, g_object_ref (task));
     }
 }
+
+XdpDocument *
+xdp_document_for_uri (GomRepository *repo,
+                      const char *uri,
+                      GError **error)
+{
+  GHashTableIter iter;
+  XdpDocument *doc;
+
+  ensure_documents ();
+
+  g_hash_table_iter_init (&iter, documents);
+  while (g_hash_table_iter_next (&iter, NULL, (gpointer *)&doc))
+    {
+      if (strcmp (uri, doc->uri) == 0)
+        return g_object_ref (doc);
+    }
+
+  doc = xdp_document_new (repo, uri);
+  if (!gom_resource_save_sync (GOM_RESOURCE (doc), error))
+    {
+      g_object_unref (doc);
+      return NULL;
+    }
+
+  g_hash_table_insert (documents, &doc->id, g_object_ref (doc));
+
+  return doc;
+}

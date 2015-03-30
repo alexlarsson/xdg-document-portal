@@ -195,7 +195,8 @@ xdp_permissions_new (GomRepository *repo,
                        "app-id", app_id,
                        "document", xdp_document_get_id (doc),
                        "permissions", (guint)permissions,
-                       "transient", transient);
+                       "transient", transient,
+                       NULL);
 }
 
 gint64

@@ -181,6 +181,30 @@ xdp_document_get_permissions (XdpDocument *doc,
   return flags;
 }
 
+void
+xdp_document_grant_permissions (XdpDocument *doc,
+                                const char *app_id,
+                                XdpPermissionFlags perms)
+{
+  XdpPermissions *permissions = NULL;
+  XdpPermissionFlags old_perms;
+  GomRepository *repo;
+
+  old_perms = xdp_document_get_permissions (doc, app_id);
+  if ((perms & old_perms) == perms)
+    return;
+
+  g_object_get (doc, "repository", &repo, NULL);
+  permissions = xdp_permissions_new (repo, doc, app_id, perms, FALSE);
+  if (!gom_resource_save_sync (GOM_RESOURCE (permissions), NULL))
+    {
+      g_object_unref (permissions);
+      return;
+    }
+  doc->permissions = g_list_prepend (doc->permissions, permissions);
+  gom_resource_save_sync (GOM_RESOURCE (doc), NULL);
+}
+
 gboolean
 xdp_document_has_permissions (XdpDocument *doc,
                               const char *app_id,
@@ -428,6 +452,48 @@ xdp_document_handle_finish_update (XdpDocument *doc,
   document_update_free (update);
 }
 
+static void
+xdp_document_handle_grant_permissions (XdpDocument *doc,
+                                       GDBusMethodInvocation *invocation,
+                                       const char *app_id,
+                                       GVariant *parameters)
+{
+  const char *target_app_id;
+  char **permissions;
+  XdpPermissionFlags perms;
+  gint i;
+
+  g_variant_get (parameters, "(&s^a&s)", &target_app_id, &permissions);
+
+  if (!xdp_document_has_permissions (doc, app_id, XDP_PERMISSION_FLAGS_GRANT_PERMISSIONS))
+    {
+      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+                                             "No permissions to grant permissions");
+      return;
+    }
+
+  perms = 0;
+  for (i = 0; permissions[i]; i++)
+    {
+      if (strcmp (permissions[i], "read") == 0)
+        perms |= XDP_PERMISSION_FLAGS_READ;
+      else if (strcmp (permissions[i], "write") == 0)
+        perms |= XDP_PERMISSION_FLAGS_WRITE;
+      else if (strcmp (permissions[i], "grant-permissions") == 0)
+        perms |= XDP_PERMISSION_FLAGS_GRANT_PERMISSIONS;
+      else
+        {
+          g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+                                                 "No such permission: %s", permissions[i]);
+          return;
+        }
+    }
+
+  xdp_document_grant_permissions (doc, target_app_id, perms);
+
+  g_dbus_method_invocation_return_value (invocation, g_variant_new ("()"));
+}
+
 struct {
   const char *name;
   const char *args;
@@ -438,7 +504,8 @@ struct {
 } doc_methods[] = {
   { "Read", "(s)", xdp_document_handle_read},
   { "PrepareUpdate", "(ssas)", xdp_document_handle_prepare_update},
-  { "FinishUpdate", "(su)", xdp_document_handle_finish_update}
+  { "FinishUpdate", "(su)", xdp_document_handle_finish_update},
+  { "GrantPermissions", "(sas)", xdp_document_handle_grant_permissions}
 };
 
 void
@@ -663,4 +730,33 @@ xdp_document_load (GomRepository      *repository,
       else
         load->pending = g_list_append (load->pending, g_object_ref (task));
     }
+}
+
+XdpDocument *
+xdp_document_for_uri (GomRepository *repo,
+                      const char *uri,
+                      GError **error)
+{
+  GHashTableIter iter;
+  XdpDocument *doc;
+
+  ensure_documents ();
+
+  g_hash_table_iter_init (&iter, documents);
+  while (g_hash_table_iter_next (&iter, NULL, (gpointer *)&doc))
+    {
+      if (strcmp (uri, doc->uri) == 0)
+        return g_object_ref (doc);
+    }
+
+  doc = xdp_document_new (repo, uri);
+  if (!gom_resource_save_sync (GOM_RESOURCE (doc), error))
+    {
+      g_object_unref (doc);
+      return NULL;
+    }
+
+  g_hash_table_insert (documents, &doc->id, g_object_ref (doc));
+
+  return doc;
 }

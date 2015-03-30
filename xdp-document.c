@@ -181,6 +181,21 @@ xdp_document_get_permissions (XdpDocument *doc,
   return flags;
 }
 
+static void
+permissions_saved (GObject *source_object,
+                   GAsyncResult *result,
+                   gpointer data)
+{
+  GomResource *resource = GOM_RESOURCE (source_object);
+  GError *error = NULL;
+
+  if (!gom_resource_save_finish (resource, result, &error))
+    {
+      g_warning ("Failed to save permissions: %s", error->message);
+      g_error_free (error);
+    }
+}
+
 void
 xdp_document_grant_permissions (XdpDocument *doc,
                                 const char *app_id,
@@ -196,13 +211,8 @@ xdp_document_grant_permissions (XdpDocument *doc,
 
   g_object_get (doc, "repository", &repo, NULL);
   permissions = xdp_permissions_new (repo, doc, app_id, perms, FALSE);
-  if (!gom_resource_save_sync (GOM_RESOURCE (permissions), NULL))
-    {
-      g_object_unref (permissions);
-      return;
-    }
   doc->permissions = g_list_prepend (doc->permissions, permissions);
-  gom_resource_save_sync (GOM_RESOURCE (doc), NULL);
+  gom_resource_save_async (GOM_RESOURCE (permissions), permissions_saved, NULL);
 }
 
 gboolean

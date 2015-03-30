@@ -151,7 +151,8 @@ xdp_document_new (GomRepository *repo,
 {
   return g_object_new (XDP_TYPE_DOCUMENT,
                        "repository", repo,
-                       "uri", uri);
+                       "uri", uri,
+                       NULL);
 }
 
 gint64

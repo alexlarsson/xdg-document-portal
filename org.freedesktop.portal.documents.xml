@@ -45,6 +45,7 @@
     <method name="GrantPermissions">
       <arg type='s' name='appid' direction='in'/>
       <arg type='as' name='permissions' direction='in'/>
+      <arg type='x' name='cookie' direction='out'/>
     </method>
   </interface>
 </node>

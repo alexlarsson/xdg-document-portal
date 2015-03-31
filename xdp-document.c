@@ -751,26 +751,110 @@ document_saved (GObject *source_object,
     g_warning ("Failed to save document: %s", error->message);
 }
 
-XdpDocument *
-xdp_document_for_uri (GomRepository *repo,
-                      const char *uri,
-                      GError **error)
+typedef struct
 {
-  GHashTableIter iter;
+  GTask *task;
+  gchar *uri;
+} UriData;
+
+static void
+find_one_for_uri_cb (GObject *source_object,
+                     GAsyncResult *res,
+                     gpointer user_data)
+{
+  GomRepository *repository = GOM_REPOSITORY (source_object);
+  g_autofree UriData *data = user_data;
+  g_autoptr (GTask) task = data->task;
+  g_autofree char *uri = data->uri;
+  g_autoptr (XdpDocument) doc = NULL;
+  g_autoptr (GError) error = NULL;
+
+  doc = (XdpDocument *)gom_repository_find_one_finish (repository, res, &error);
+
+  if (doc == NULL)
+    {
+      if (g_error_matches (error, GOM_ERROR, GOM_ERROR_REPOSITORY_EMPTY_RESULT))
+        {
+          doc = xdp_document_new (repository, uri);
+          g_hash_table_insert (documents, &doc->id, doc);
+          gom_resource_save_async (GOM_RESOURCE (doc), document_saved, NULL);
+          g_task_return_pointer (task, g_object_ref (doc), g_object_unref);
+          g_clear_error (&error);
+        }
+      else
+        {
+          g_task_return_error (task, error);
+          error = NULL;
+        }
+    }
+  else
+    {
+      DocumentLoad *load;
+      GValue value = { 0, };
+      g_autoptr(GomFilter) filter = NULL;
+
+      load = g_new0 (DocumentLoad, 1);
+      load->id = doc->id;
+      load->pending = g_list_append (load->pending, g_object_ref (task));
+
+      g_hash_table_insert (loads, &load->id, load);
+      load->doc = g_object_ref (doc);
+
+      g_value_init (&value, G_TYPE_INT64);
+      g_value_set_int64 (&value, doc->id);
+      filter = gom_filter_new_eq (XDP_TYPE_PERMISSIONS, "document", &value);
+
+      gom_repository_find_async (repository, XDP_TYPE_PERMISSIONS,
+                                 filter,
+                                 find_permissions_cb, load);
+    }
+}
+
+void
+xdp_document_for_uri (GomRepository      *repository,
+                      const char         *uri,
+                      GCancellable       *cancellable,
+                      GAsyncReadyCallback callback,
+                      gpointer            user_data)
+{
   XdpDocument *doc;
+  g_autoptr (GTask) task = NULL;
+  g_autoptr(GomFilter) filter = NULL;
+  GValue value = { 0, };
+  GHashTableIter iter;
+  UriData *data;
 
   ensure_documents ();
+
+  task = g_task_new (repository, cancellable, callback, user_data);
 
   g_hash_table_iter_init (&iter, documents);
   while (g_hash_table_iter_next (&iter, NULL, (gpointer *)&doc))
     {
       if (strcmp (uri, doc->uri) == 0)
-        return doc;
+        {
+          g_task_return_pointer (task, g_object_ref (doc), g_object_unref);
+          return;
+        }
     }
 
-  doc = xdp_document_new (repo, uri);
-  g_hash_table_insert (documents, &doc->id, doc);
-  gom_resource_save_async (GOM_RESOURCE (doc), document_saved, NULL);
+  g_value_init (&value, G_TYPE_STRING);
+  g_value_set_string (&value, uri);
+  filter = gom_filter_new_eq (XDP_TYPE_DOCUMENT, "uri", &value);
 
-  return doc;
+  data = g_new (UriData, 1);
+  data->task = g_object_ref (task);
+  data->uri = g_strdup (uri);
+
+  gom_repository_find_one_async (repository, XDP_TYPE_DOCUMENT,
+                                 filter, find_one_for_uri_cb, data);
 }
+
+XdpDocument *
+xdp_document_for_uri_finish (GomRepository *repository,
+                             GAsyncResult    *result,
+                             GError         **error)
+{
+  return g_task_propagate_pointer (G_TASK (result), error);
+}
+

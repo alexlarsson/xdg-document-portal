@@ -335,6 +335,37 @@ name_owner_changed (GDBusConnection  *connection,
 }
 
 static void
+got_document_for_uri_cb (GObject *source_object,
+                         GAsyncResult *result,
+                         gpointer data)
+{
+  GDBusMethodInvocation *invocation = data;
+  g_autoptr(GError) error = NULL;
+  GVariant *parameters;
+  const char *uri;
+  const char *target_app;
+  XdpDocument *doc;
+  gint64 id;
+
+  parameters = g_dbus_method_invocation_get_parameters (invocation);
+  g_variant_get (parameters, "(&s&s)", &uri, &target_app);
+
+  doc = xdp_document_for_uri_finish (repository, result, &error);
+  if (doc == NULL)
+    {
+      g_dbus_method_invocation_return_error (invocation,
+                                             XDP_ERROR, XDP_ERROR_FAILED,
+                                             "Failed to store: %s", error->message);
+    }
+  else
+    {
+      xdp_document_grant_permissions (doc, target_app, XDP_PERMISSION_FLAGS_ALL);
+      id = xdp_document_get_id (doc);
+      g_dbus_method_invocation_return_value (invocation, g_variant_new ("(x)", id));
+   }
+}
+
+static void
 got_app_id_cb (GObject *source_object,
                GAsyncResult *res,
                gpointer user_data)
@@ -361,26 +392,12 @@ got_app_id_cb (GObject *source_object,
       GVariant *parameters;
       const char *uri;
       const char *target_app;
-      XdpDocument *doc;
-      gint64 id;
 
       parameters = g_dbus_method_invocation_get_parameters (invocation);
       g_variant_get (parameters, "(&s&s)", &uri, &target_app);
 
-      doc = xdp_document_for_uri (repository, uri, &error);
-      if (doc == NULL)
-        {
-          g_dbus_method_invocation_return_error (invocation,
-                                                 XDP_ERROR, XDP_ERROR_FAILED,
-                                                 "Failed to store: %s", error->message);
-        }
-      else
-        {
-          xdp_document_grant_permissions (doc, target_app, XDP_PERMISSION_FLAGS_ALL);
-          id = xdp_document_get_id (doc);
+      xdp_document_for_uri (repository, uri, NULL, got_document_for_uri_cb, g_object_ref (invocation));
 
-          g_dbus_method_invocation_return_value (invocation, g_variant_new ("(x)", id));
-        }
     }
 }
 

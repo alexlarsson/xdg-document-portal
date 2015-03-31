@@ -25,6 +25,10 @@
 
 <node name="/" xmlns:doc="http://www.freedesktop.org/dbus/1.0/doc.dtd">
   <interface name='org.freedesktop.portal.DocumentPortal'>
+    <method name="OpenDocument">
+      <arg type='s' name='type' direction='in'/>
+      <arg type='x' name='handle' direction='out'/>
+    </method>
   </interface>
   <interface name='org.freedesktop.portal.Document'>
     <method name="Read">

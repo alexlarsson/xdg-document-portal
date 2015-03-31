@@ -1,6 +1,7 @@
 NULL =
 
 AM_CPPFLAGS =						\
+	-DLIBEXECDIR=\"$(libexecdir)\"			\
 	$(NULL)
 
 noinst_PROGRAMS = \

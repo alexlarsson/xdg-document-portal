@@ -178,6 +178,8 @@ got_doc_app_id_cb (GObject *source_object,
     g_dbus_method_invocation_return_gerror (invocation, error);
   else
     xdp_document_handle_call (doc, invocation, app_id);
+
+  g_free (app_id);
 }
 
 static void

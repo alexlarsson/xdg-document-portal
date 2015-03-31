@@ -181,38 +181,73 @@ xdp_document_get_permissions (XdpDocument *doc,
   return flags;
 }
 
+typedef struct
+{
+  GTask *task;
+  XdpDocument *doc;
+} PermissionData;
+
 static void
 permissions_saved (GObject *source_object,
                    GAsyncResult *result,
-                   gpointer data)
+                   gpointer user_data)
 {
   GomResource *resource = GOM_RESOURCE (source_object);
-  GError *error = NULL;
+  XdpPermissions *permissions = XDP_PERMISSIONS (source_object);
+  g_autofree PermissionData *data = user_data;
+  g_autoptr (GTask) task = data->task;
+  g_autoptr (XdpDocument) doc = data->doc;
+  g_autoptr (GError) error = NULL;
 
   if (!gom_resource_save_finish (resource, result, &error))
     {
-      g_warning ("Failed to save permissions: %s", error->message);
-      g_error_free (error);
+      g_task_return_error (task, error);
+      return;
     }
+
+  doc->permissions = g_list_prepend (doc->permissions, permissions);
+  g_task_return_pointer (task, g_object_ref (permissions), g_object_unref);
 }
 
 void
-xdp_document_grant_permissions (XdpDocument *doc,
-                                const char *app_id,
-                                XdpPermissionFlags perms)
+xdp_document_grant_permissions (XdpDocument        *doc,
+                                const char         *app_id,
+                                XdpPermissionFlags  perms,
+                                GCancellable       *cancellable,
+                                GAsyncReadyCallback callback,
+                                gpointer            user_data)
 {
   XdpPermissions *permissions = NULL;
-  XdpPermissionFlags old_perms;
-  GomRepository *repo;
+  GomRepository *repository;
+  g_autoptr (GTask) task = NULL;
+  PermissionData *data;
 
-  old_perms = xdp_document_get_permissions (doc, app_id);
-  if ((perms & old_perms) == perms)
-    return;
+  task = g_task_new (doc, cancellable, callback, user_data);
 
-  g_object_get (doc, "repository", &repo, NULL);
-  permissions = xdp_permissions_new (repo, doc, app_id, perms, FALSE);
-  doc->permissions = g_list_prepend (doc->permissions, permissions);
-  gom_resource_save_async (GOM_RESOURCE (permissions), permissions_saved, NULL);
+  g_object_get (doc, "repository", &repository, NULL);
+
+  permissions = xdp_permissions_new (repository, doc, app_id, perms, FALSE);
+
+  data = g_new (PermissionData, 1);
+  data->task = g_object_ref (task);
+  data->doc = g_object_ref (doc);
+
+  gom_resource_save_async (GOM_RESOURCE (permissions), permissions_saved, data);
+}
+
+gint64
+xdp_document_grant_permissions_finish (XdpDocument   *doc,
+                                       GAsyncResult  *result,
+                                       GError       **error)
+{
+  XdpPermissions *permissions;
+
+  permissions = g_task_propagate_pointer (G_TASK (result), error);
+
+  if (permissions)
+    return xdp_permissions_get_id (permissions);
+
+  return 0;
 }
 
 gboolean
@@ -463,6 +498,23 @@ xdp_document_handle_finish_update (XdpDocument *doc,
 }
 
 static void
+permissions_granted (GObject *source_object,
+                     GAsyncResult *result,
+                     gpointer data)
+{
+  XdpDocument *doc = XDP_DOCUMENT (source_object);
+  g_autoptr(GDBusMethodInvocation) invocation = data;
+  gint64 cookie;
+  g_autoptr(GError) error = NULL;
+
+  cookie = xdp_document_grant_permissions_finish (doc, result, &error);
+  if (cookie == 0)
+    g_dbus_method_invocation_return_gerror (invocation, error);
+  else
+    g_dbus_method_invocation_return_value (invocation, g_variant_new ("(x)", cookie));
+}
+
+static void
 xdp_document_handle_grant_permissions (XdpDocument *doc,
                                        GDBusMethodInvocation *invocation,
                                        const char *app_id,
@@ -499,9 +551,7 @@ xdp_document_handle_grant_permissions (XdpDocument *doc,
         }
     }
 
-  xdp_document_grant_permissions (doc, target_app_id, perms);
-
-  g_dbus_method_invocation_return_value (invocation, g_variant_new ("()"));
+  xdp_document_grant_permissions (doc, target_app_id, perms, NULL, permissions_granted, g_object_ref (invocation));
 }
 
 struct {

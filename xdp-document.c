@@ -745,10 +745,13 @@ document_saved (GObject *source_object,
                 gpointer data)
 {
   GomResource *resource = GOM_RESOURCE (source_object);
-  g_autoptr (GError) error = NULL;
+  g_autoptr (GTask) task = data;
+  GError *error = NULL;
 
   if (!gom_resource_save_finish (resource, result, &error))
-    g_warning ("Failed to save document: %s", error->message);
+    g_task_return_error (task, error);
+  else
+    g_task_return_pointer (task, g_object_ref (resource), g_object_unref);
 }
 
 typedef struct
@@ -777,8 +780,7 @@ find_one_for_uri_cb (GObject *source_object,
         {
           doc = xdp_document_new (repository, uri);
           g_hash_table_insert (documents, &doc->id, doc);
-          gom_resource_save_async (GOM_RESOURCE (doc), document_saved, NULL);
-          g_task_return_pointer (task, g_object_ref (doc), g_object_unref);
+          gom_resource_save_async (GOM_RESOURCE (doc), document_saved, g_object_ref (task));
           g_clear_error (&error);
         }
       else

@@ -53,6 +53,8 @@ xdg_document_portal_SOURCES = \
 	$(dbus_built_sources)	\
 	xdp-resources.h		\
 	xdp-resources.c		\
+	xdp-util.h		\
+	xdp-util.c		\
 	$(NULL)
 
 xdg_document_portal_LDADD = $(BASE_LIBS) $(GOM_LIBS)

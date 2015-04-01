@@ -6,7 +6,6 @@
 #include <gio/gio.h>
 #include <gom/gom.h>
 #include "xdp-dbus.h"
-#include "xdp-main.h"
 #include "xdp-document.h"
 #include "xdp-permissions.h"
 #include "xdp-error.h"

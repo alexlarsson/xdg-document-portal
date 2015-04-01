@@ -10,7 +10,6 @@
 #include "xdp-permissions.h"
 #include "xdp-document.h"
 #include "xdp-error.h"
-#include "xdp-main.h"
 
 struct _XdpPermissions
 {

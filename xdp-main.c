@@ -61,8 +61,6 @@ got_document_cb (GObject *source_object,
     xdp_invocation_lookup_app_id (invocation, NULL, got_doc_app_id_cb, g_object_ref (doc));
 }
 
-
-
 static void
 document_method_call (GDBusConnection       *connection,
                       const gchar           *sender,
@@ -165,6 +163,70 @@ const GDBusSubtreeVTable subtree_vtable =
   };
 
 static void
+got_document_for_uri_cb (GObject *source_object,
+                         GAsyncResult *result,
+                         gpointer data)
+{
+  GDBusMethodInvocation *invocation = data;
+  g_autoptr(GError) error = NULL;
+  XdpDocument *doc;
+
+  doc = xdp_document_for_uri_finish (repository, result, &error);
+  if (doc == NULL)
+    g_dbus_method_invocation_return_error (invocation,
+                                           XDP_ERROR, XDP_ERROR_FAILED,
+                                           "Failed to store: %s", error->message);
+  else
+    g_dbus_method_invocation_return_value (invocation,
+                                           g_variant_new ("(x)", xdp_document_get_id (doc)));
+}
+
+static void
+got_app_id_cb (GObject *source_object,
+               GAsyncResult *res,
+               gpointer user_data)
+{
+  GDBusMethodInvocation *invocation = G_DBUS_METHOD_INVOCATION (source_object);
+  g_autoptr(GError) error = NULL;
+  g_autofree char *app_id = NULL;
+
+  app_id = xdp_invocation_lookup_app_id_finish (invocation, res, &error);
+
+  if (app_id == NULL)
+    {
+      g_dbus_method_invocation_return_gerror (invocation, error);
+    }
+  else if (app_id[0] != '\0')
+    {
+      /* don't allow this from within the sandbox for now */
+      g_dbus_method_invocation_return_error (invocation,
+                                             XDP_ERROR, XDP_ERROR_FAILED,
+                                             "Not allowed inside sandbox");
+    }
+  else
+    {
+      GVariant *parameters;
+      const char *uri;
+
+      parameters = g_dbus_method_invocation_get_parameters (invocation);
+      g_variant_get (parameters, "(&s)", &uri);
+
+      xdp_document_for_uri (repository, uri, NULL, got_document_for_uri_cb, g_object_ref (invocation));
+
+    }
+}
+
+static gboolean
+handle_add (XdpDbusDocumentPortal *portal,
+            GDBusMethodInvocation *invocation,
+            const char            *type)
+{
+  xdp_invocation_lookup_app_id (invocation, NULL, got_app_id_cb, NULL);
+
+  return TRUE;
+}
+
+static void
 on_bus_acquired (GDBusConnection *connection,
                  const gchar     *name,
                  gpointer         user_data)
@@ -174,6 +236,9 @@ on_bus_acquired (GDBusConnection *connection,
   guint registration_id;
 
   helper = xdp_dbus_document_portal_skeleton_new ();
+
+  g_signal_connect (helper, "handle-add",
+                    G_CALLBACK (handle_add), NULL);
 
   xdp_connection_track_name_owners (connection);
 

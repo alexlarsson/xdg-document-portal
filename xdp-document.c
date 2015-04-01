@@ -44,12 +44,19 @@ static GParamSpec *gParamSpecs [LAST_PROP];
 
 static GHashTable *documents;
 static GHashTable *loads;
+static GHashTable *adds;
 
 typedef struct {
   gint64 id;
   XdpDocument *doc;
   GList *pending;
 } DocumentLoad;
+
+typedef struct
+{
+  gchar *uri;
+  GList *pending;
+} DocumentAdd;
 
 static void
 xdp_document_finalize (GObject *object)
@@ -633,6 +640,57 @@ document_load_abort (DocumentLoad *load, GError *error)
   g_hash_table_remove (loads, &load->id);
 }
 
+static void
+document_load_complete (DocumentLoad *load)
+{
+  GList *l;
+
+  for (l = load->pending; l != NULL; l = l->next)
+    {
+      GTask *task = l->data;
+      g_task_return_pointer (task, g_object_ref (load->doc), g_object_unref);
+    }
+  g_hash_table_remove (loads, &load->id);
+}
+
+static void
+document_add_free (DocumentAdd *add)
+{
+  g_list_free_full (add->pending, g_object_unref);
+  g_free (add->uri);
+  g_free (add);
+}
+
+static void
+document_add_abort (DocumentAdd *add, GError *error)
+{
+  GList *l;
+
+  for (l = add->pending; l != NULL; l = l->next)
+    {
+      GTask *task = l->data;
+      if (error)
+        g_task_return_new_error (task, error->domain, error->code, error->message);
+      else
+        g_task_return_new_error (task, XDP_ERROR, XDP_ERROR_FAILED, "Adding document failed");
+    }
+  g_hash_table_remove (adds, add->uri);
+}
+
+static void
+document_add_complete (DocumentAdd *add, XdpDocument *doc)
+{
+  GList *l;
+
+  for (l = add->pending; l != NULL; l = l->next)
+    {
+      GTask *task = l->data;
+
+      g_task_return_pointer (task, g_object_ref (doc), g_object_unref);
+    }
+
+  g_hash_table_remove (adds, add->uri);
+}
 
 static void
 ensure_documents (void)
@@ -644,6 +702,10 @@ ensure_documents (void)
   if (loads == NULL)
     loads = g_hash_table_new_full (g_int64_hash, g_int64_equal,
                                    NULL, (GDestroyNotify)document_load_free);
+
+  if (adds == NULL)
+    adds = g_hash_table_new_full (g_str_hash, g_str_equal,
+                                   NULL, (GDestroyNotify)document_add_free);
 }
 
 XdpDocument *
@@ -662,8 +724,6 @@ fetch_permissions_cb (GObject *source_object,
   GomResourceGroup *group = GOM_RESOURCE_GROUP (source_object);
   g_autoptr (GError) error = NULL;
   DocumentLoad *load = user_data;
-  gint64 id = load->id;
-  GList *l;
   int i;
 
   if (!gom_resource_group_fetch_finish (group, res, &error))
@@ -680,14 +740,7 @@ fetch_permissions_cb (GObject *source_object,
     }
 
   g_hash_table_insert (documents, &load->doc->id, g_object_ref (load->doc));
-  for (l = load->pending; l != NULL; l = l->next)
-    {
-      GTask *task = l->data;
-
-      g_task_return_pointer (task, g_object_ref (load->doc), g_object_unref);
-    }
-
-  g_hash_table_remove (loads, &id);
+  document_load_complete (load);
 }
 
 static void
@@ -741,7 +794,6 @@ find_one_doc_cb (GObject *source_object,
   gom_repository_find_async (repository, XDP_TYPE_PERMISSIONS,
                              filter,
                              find_permissions_cb, load);
-
 }
 
 void
@@ -790,4 +842,128 @@ xdp_document_load (GomRepository      *repository,
       else
         load->pending = g_list_append (load->pending, g_object_ref (task));
     }
+}
+
+static void
+document_saved (GObject *source_object,
+                GAsyncResult *result,
+                gpointer data)
+{
+  GomResource *resource = GOM_RESOURCE (source_object);
+  XdpDocument *doc = XDP_DOCUMENT (source_object);
+  DocumentAdd *add = data;
+  g_autoptr(GError) error = NULL;
+
+  if (!gom_resource_save_finish (resource, result, &error))
+    {
+      document_add_abort (add, error);
+      return;
+    }
+
+  g_hash_table_insert (documents, &doc->id, doc);
+  document_add_complete (add, doc);
+}
+
+static void
+document_loaded (GObject *source_object,
+                 GAsyncResult *res,
+                 gpointer user_data)
+{
+  GomRepository *repository = GOM_REPOSITORY (source_object);
+  DocumentAdd *add = user_data;
+  g_autoptr(XdpDocument) doc = NULL;
+  g_autoptr(GError) error = NULL;
+
+  doc = xdg_document_load_finish (repository, res, &error);
+  if (doc == NULL)
+    {
+      document_add_abort (add, error);
+      return;
+    }
+
+  document_add_complete (add, doc);
+}
+
+static void
+find_one_for_uri_cb (GObject *source_object,
+                     GAsyncResult *res,
+                     gpointer user_data)
+{
+  GomRepository *repository = GOM_REPOSITORY (source_object);
+  DocumentAdd *add = user_data;
+  g_autoptr (XdpDocument) doc = NULL;
+  g_autoptr (GError) error = NULL;
+
+  doc = (XdpDocument *)gom_repository_find_one_finish (repository, res, &error);
+
+  if (doc == NULL)
+    {
+      if (g_error_matches (error, GOM_ERROR, GOM_ERROR_REPOSITORY_EMPTY_RESULT))
+        {
+          g_clear_error (&error);
+          doc = xdp_document_new (repository, add->uri);
+          gom_resource_save_async (GOM_RESOURCE (g_object_ref (doc)), document_saved, add);
+        }
+      else
+        document_add_abort (add, error);
+    }
+  else
+    xdp_document_load (repository, doc->id, NULL, document_loaded, add);
+}
+
+void
+xdp_document_for_uri (GomRepository      *repository,
+                      const char         *uri,
+                      GCancellable       *cancellable,
+                      GAsyncReadyCallback callback,
+                      gpointer            user_data)
+{
+  XdpDocument *doc;
+  g_autoptr (GTask) task = NULL;
+  GHashTableIter iter;
+  DocumentAdd *add;
+
+  ensure_documents ();
+
+  task = g_task_new (repository, cancellable, callback, user_data);
+
+  g_hash_table_iter_init (&iter, documents);
+  while (g_hash_table_iter_next (&iter, NULL, (gpointer *)&doc))
+    {
+      if (strcmp (uri, doc->uri) == 0)
+        {
+          g_task_return_pointer (task, g_object_ref (doc), g_object_unref);
+          return;
+        }
+    }
+
+  add = g_hash_table_lookup (adds, uri);
+  if (add == NULL)
+    {
+      g_autoptr(GomFilter) filter = NULL;
+      GValue value = { 0, };
+
+      add = g_new0 (DocumentAdd, 1);
+      add->uri = g_strdup (uri);
+      add->pending = g_list_append (add->pending, g_object_ref (task));
+
+      g_hash_table_insert (adds, add->uri, add);
+
+      g_value_init (&value, G_TYPE_STRING);
+      g_value_set_string (&value, uri);
+      filter = gom_filter_new_eq (XDP_TYPE_DOCUMENT, "uri", &value);
+
+      gom_repository_find_one_async (repository, XDP_TYPE_DOCUMENT,
+                                     filter, find_one_for_uri_cb, add);
+    }
+  else
+    add->pending = g_list_append (add->pending, g_object_ref (task));
+}
+
+XdpDocument *
+xdp_document_for_uri_finish (GomRepository *repository,
+                             GAsyncResult    *result,
+                             GError         **error)
+{
+  return g_task_propagate_pointer (G_TASK (result), error);
 }

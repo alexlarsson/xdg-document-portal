@@ -171,6 +171,8 @@ name_owner_changed (GDBusConnection *connection,
   const char *name, *from, *to;
   g_variant_get (parameters, "(sss)", &name, &from, &to);
 
+  ensure_app_ids ();
+
   if (name[0] == ':' &&
       strcmp (name, from) == 0 &&
       strcmp (to, "") == 0)

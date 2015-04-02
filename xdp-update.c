@@ -83,7 +83,7 @@ main (int    argc,
   path = g_build_filename ("/org/freedesktop/portal/document", argv[1], NULL);
   proxy = xdp_dbus_document_proxy_new_sync (bus,
                                             G_DBUS_PROXY_FLAGS_DO_NOT_LOAD_PROPERTIES | G_DBUS_PROXY_FLAGS_DO_NOT_CONNECT_SIGNALS,
-                                            "org.freedesktop.portal.DocumentsPortal",
+                                            "org.freedesktop.portal.DocumentPortal",
                                             path,
                                             NULL, &error);
   if (proxy == NULL)

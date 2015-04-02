@@ -41,7 +41,7 @@ main (int    argc,
     }
 
   ret = g_dbus_connection_call_sync (bus,
-                                     "org.freedesktop.portal.DocumentsPortal",
+                                     "org.freedesktop.portal.DocumentPortal",
                                      "/org/freedesktop/portal/document",
                                      "org.freedesktop.portal.DocumentPortal",
                                      "Add",
@@ -66,7 +66,7 @@ main (int    argc,
   path = g_strdup_printf ("/org/freedesktop/portal/document/%ld", handle);
 
   ret = g_dbus_connection_call_sync (bus,
-                                     "org.freedesktop.portal.DocumentsPortal",
+                                     "org.freedesktop.portal.DocumentPortal",
                                      path,
                                      "org.freedesktop.portal.Document",
                                      "GrantPermissions",

@@ -27,6 +27,7 @@ typedef struct
 {
   int fd;
   char *owner;
+  char *etag;
 } XdpDocumentUpdate;
 
 
@@ -326,6 +327,7 @@ document_update_free (XdpDocumentUpdate *update)
 {
   close (update->fd);
   g_free (update->owner);
+  g_free (update->etag);
   g_free (update);
 }
 
@@ -401,6 +403,7 @@ xdp_document_handle_prepare_update (XdpDocument *doc,
   update->fd = ro_fd;
   ro_fd = -1;
   update->owner = g_strdup (g_dbus_method_invocation_get_sender (invocation));
+  update->etag = g_strdup (etag);
 
   doc->updates = g_list_append (doc->updates, update);
 
@@ -464,7 +467,7 @@ xdp_document_handle_finish_update (XdpDocument *doc,
   doc->updates = g_list_remove (doc->updates, update);
 
   dest = g_file_new_for_uri (doc->uri);
-  output = g_file_replace (dest, NULL, FALSE, 0, NULL, &error);
+  output = g_file_replace (dest, update->etag, FALSE, 0, NULL, &error);
   if (output == NULL)
     {
       g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,

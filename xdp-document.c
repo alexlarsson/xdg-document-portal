@@ -282,7 +282,7 @@ xdp_document_handle_read (XdpDocument *doc,
   int fd, fd_id;
   GVariant *retval;
 
-  g_variant_get (parameters, "(s)", &window);
+  g_variant_get (parameters, "(&s)", &window);
 
   if (!xdp_document_has_permissions (doc, app_id, XDP_PERMISSION_FLAGS_READ))
     {
@@ -347,7 +347,7 @@ xdp_document_handle_prepare_update (XdpDocument *doc,
   GVariant *retval;
   XdpDocumentUpdate *update;
 
-  g_variant_get (parameters, "(ss^as)", &window, &etag, &flags);
+  g_variant_get (parameters, "(&s&s^a&s)", &window, &etag, &flags);
 
   if (!xdp_document_has_permissions (doc, app_id, XDP_PERMISSION_FLAGS_WRITE))
     {
@@ -433,7 +433,7 @@ xdp_document_handle_finish_update (XdpDocument *doc,
   char buffer[8192];
   GList *l;
 
-  g_variant_get (parameters, "(su)", &window, &id);
+  g_variant_get (parameters, "(&su)", &window, &id);
 
   if (!xdp_document_has_permissions (doc, app_id, XDP_PERMISSION_FLAGS_WRITE))
     {

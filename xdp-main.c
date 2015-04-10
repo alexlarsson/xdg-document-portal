@@ -181,6 +181,64 @@ got_document_for_uri_cb (GObject *source_object,
 }
 
 static void
+portal_add (GDBusMethodInvocation *invocation,
+            const char *app_id)
+{
+  GVariant *parameters;
+  const char *uri;
+
+  if (app_id[0] != '\0')
+    {
+      /* don't allow this from within the sandbox for now */
+      g_dbus_method_invocation_return_error (invocation,
+                                             XDP_ERROR, XDP_ERROR_FAILED,
+                                             "Not allowed inside sandbox");
+      return;
+    }
+
+  parameters = g_dbus_method_invocation_get_parameters (invocation);
+  g_variant_get (parameters, "(&s)", &uri);
+
+  xdp_document_for_uri (repository, uri, NULL, got_document_for_uri_cb, g_object_ref (invocation));
+}
+
+static void
+portal_new (GDBusMethodInvocation *invocation,
+            const char *app_id)
+{
+  GVariant *parameters;
+  const char *uri;
+  const char *title;
+  g_autoptr (XdpDocument) doc = NULL;
+
+  if (app_id[0] != '\0')
+    {
+      /* don't allow this from within the sandbox for now */
+      g_dbus_method_invocation_return_error (invocation,
+                                             XDP_ERROR, XDP_ERROR_FAILED,
+                                             "Not allowed inside sandbox");
+      return;
+    }
+
+  parameters = g_dbus_method_invocation_get_parameters (invocation);
+  g_variant_get (parameters, "(&s&s)", &uri, &title);
+
+  if (title == NULL || title[0] == '\0')
+    {
+      /* don't allow this from within the sandbox for now */
+      g_dbus_method_invocation_return_error (invocation,
+                                             XDP_ERROR, XDP_ERROR_FAILED,
+                                             "Title must not be empty");
+      return;
+    }
+
+  xdp_document_for_uri_and_title (repository, uri, title, NULL, got_document_for_uri_cb, g_object_ref (invocation));
+}
+
+typedef void (*PortalMethod) (GDBusMethodInvocation *invocation,
+                              const char *app_id);
+
+static void
 got_app_id_cb (GObject *source_object,
                GAsyncResult *res,
                gpointer user_data)
@@ -188,39 +246,35 @@ got_app_id_cb (GObject *source_object,
   GDBusMethodInvocation *invocation = G_DBUS_METHOD_INVOCATION (source_object);
   g_autoptr(GError) error = NULL;
   g_autofree char *app_id = NULL;
+  PortalMethod portal_method = user_data;
 
   app_id = xdp_invocation_lookup_app_id_finish (invocation, res, &error);
 
   if (app_id == NULL)
-    {
-      g_dbus_method_invocation_return_gerror (invocation, error);
-    }
-  else if (app_id[0] != '\0')
-    {
-      /* don't allow this from within the sandbox for now */
-      g_dbus_method_invocation_return_error (invocation,
-                                             XDP_ERROR, XDP_ERROR_FAILED,
-                                             "Not allowed inside sandbox");
-    }
+    g_dbus_method_invocation_return_gerror (invocation, error);
   else
-    {
-      GVariant *parameters;
-      const char *uri;
-
-      parameters = g_dbus_method_invocation_get_parameters (invocation);
-      g_variant_get (parameters, "(&s)", &uri);
-
-      xdp_document_for_uri (repository, uri, NULL, got_document_for_uri_cb, g_object_ref (invocation));
-
-    }
+    portal_method (invocation, app_id);
 }
 
 static gboolean
-handle_add (XdpDbusDocumentPortal *portal,
-            GDBusMethodInvocation *invocation,
-            const char            *type)
+handle_add_method (XdpDbusDocumentPortal *portal,
+                   GDBusMethodInvocation *invocation,
+                   const char            *uri,
+                   gpointer               callback)
 {
-  xdp_invocation_lookup_app_id (invocation, NULL, got_app_id_cb, NULL);
+  xdp_invocation_lookup_app_id (invocation, NULL, got_app_id_cb, portal_add);
+
+  return TRUE;
+}
+
+static gboolean
+handle_new_method (XdpDbusDocumentPortal *portal,
+                   GDBusMethodInvocation *invocation,
+                   const char            *base_uri,
+                   const char            *title,
+                   gpointer               callback)
+{
+  xdp_invocation_lookup_app_id (invocation, NULL, got_app_id_cb, portal_new);
 
   return TRUE;
 }
@@ -236,8 +290,8 @@ on_bus_acquired (GDBusConnection *connection,
 
   helper = xdp_dbus_document_portal_skeleton_new ();
 
-  g_signal_connect (helper, "handle-add",
-                    G_CALLBACK (handle_add), NULL);
+  g_signal_connect (helper, "handle-add", G_CALLBACK (handle_add_method), NULL);
+  g_signal_connect (helper, "handle-new", G_CALLBACK (handle_new_method), NULL);
 
   xdp_connection_track_name_owners (connection);
 

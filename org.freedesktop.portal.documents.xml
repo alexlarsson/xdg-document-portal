@@ -29,6 +29,11 @@
       <arg type='s' name='uri' direction='in'/>
       <arg type='x' name='handle' direction='out'/>
     </method>
+    <method name="New">
+      <arg type='s' name='base_uri' direction='in'/>
+      <arg type='s' name='title' direction='in'/>
+      <arg type='x' name='handle' direction='out'/>
+    </method>
   </interface>
   <interface name='org.freedesktop.portal.Document'>
     <method name="Read">

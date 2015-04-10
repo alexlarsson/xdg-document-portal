@@ -17,6 +17,7 @@ struct _XdpDocument
 
   gint64 id;
   char *uri;
+  char *title;
 
   GList *permissions;
 
@@ -36,6 +37,7 @@ enum {
   PROP_0,
   PROP_ID,
   PROP_URI,
+  PROP_TITLE,
   LAST_PROP
 };
 
@@ -85,6 +87,10 @@ xdp_document_get_property (GObject    *object,
       g_value_set_string (value, doc->uri);
       break;
 
+    case PROP_TITLE:
+      g_value_set_string (value, doc->title);
+      break;
+
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -107,6 +113,11 @@ xdp_document_set_property (GObject      *object,
     case PROP_URI:
       g_free (doc->uri);
       doc->uri = g_value_dup_string (value);
+      break;
+
+    case PROP_TITLE:
+      g_free (doc->title);
+      doc->title = g_value_dup_string (value);
       break;
 
     default:
@@ -144,6 +155,11 @@ xdp_document_class_init (XdpDocumentClass *klass)
                                    gParamSpecs[PROP_URI]);
   gom_resource_class_set_notnull(resource_class, "uri");
 
+  gParamSpecs[PROP_TITLE] = g_param_spec_string("title", "Title",
+                                                "Title for new file.",
+                                                NULL, G_PARAM_READWRITE);
+  g_object_class_install_property (object_class, PROP_TITLE,
+                                   gParamSpecs[PROP_TITLE]);
 }
 
 static void
@@ -158,6 +174,18 @@ xdp_document_new (GomRepository *repo,
   return g_object_new (XDP_TYPE_DOCUMENT,
                        "repository", repo,
                        "uri", uri,
+                       NULL);
+}
+
+XdpDocument *
+xdp_document_new_with_title (GomRepository *repo,
+                             const char *base_uri,
+                             const char *title)
+{
+  return g_object_new (XDP_TYPE_DOCUMENT,
+                       "repository", repo,
+                       "uri", base_uri,
+                       "title", title,
                        NULL);
 }
 
@@ -291,6 +319,13 @@ xdp_document_handle_read (XdpDocument *doc,
       return;
     }
 
+  if (doc->title != NULL)
+    {
+      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+                                             "Document not written yet");
+      return;
+    }
+
   file = g_file_new_for_uri (doc->uri);
   path = g_file_get_path (file);
 
@@ -357,9 +392,18 @@ xdp_document_handle_prepare_update (XdpDocument *doc,
     }
 
   file = g_file_new_for_uri (doc->uri);
-  path = g_file_get_path (file);
-  basename = g_file_get_basename (file);
-  dir = g_path_get_dirname (path);
+  if (doc->title != NULL)
+    {
+      dir = g_file_get_path (file);
+      basename = g_strdup (doc->title);
+    }
+  else
+    {
+      path = g_file_get_path (file);
+      basename = g_file_get_basename (file);
+      dir = g_path_get_dirname (path);
+    }
+
   template = g_strconcat (dir, "/.", basename, ".XXXXXX", NULL);
 
   fd = g_mkstemp_full (template, O_RDWR, 0600);
@@ -417,6 +461,27 @@ xdp_document_handle_prepare_update (XdpDocument *doc,
 }
 
 static void
+new_document_saved (GObject *source_object,
+                    GAsyncResult *result,
+                    gpointer data)
+{
+  GomResource *resource = GOM_RESOURCE (source_object);
+  GDBusMethodInvocation *invocation = data;
+  GVariant *retval;
+  g_autoptr(GError) error = NULL;
+
+  if (!gom_resource_save_finish (resource, result, &error))
+    {
+      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+                                             "Unable to save document resource: %s", error->message);
+      return;
+    }
+
+  retval = g_variant_new ("()");
+  g_dbus_method_invocation_return_value (invocation, retval);
+}
+
+static void
 xdp_document_handle_finish_update (XdpDocument *doc,
                                    GDBusMethodInvocation *invocation,
                                    const char *app_id,
@@ -425,6 +490,7 @@ xdp_document_handle_finish_update (XdpDocument *doc,
   const char *window;
   guint32 id;
   g_autoptr(GError) error = NULL;
+  g_autoptr(GFile) dir = NULL;
   g_autoptr(GFile) dest = NULL;
   g_autoptr(GFileOutputStream) output = NULL;
   XdpDocumentUpdate *update = NULL;
@@ -463,14 +529,59 @@ xdp_document_handle_finish_update (XdpDocument *doc,
 
   doc->updates = g_list_remove (doc->updates, update);
 
-  dest = g_file_new_for_uri (doc->uri);
-  output = g_file_replace (dest, NULL, FALSE, 0, NULL, &error);
-  if (output == NULL)
+  /* Here we replace the target file using a copy, this is to disconnect the final
+     file from all modifications that the writing app could do to the original file
+     after calling finish_update. We don't want to pass a fd to another app that
+     may change under its feet. */
+
+  if (doc->title)
     {
-      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
-                                             "%s", error->message);
-      goto out;
+      int version = 0;
+      dir = g_file_new_for_uri (doc->uri);
+
+      do
+        {
+          g_clear_object (&dest);
+          if (version == 0)
+            dest = g_file_get_child (dir, doc->title);
+          else
+            {
+              g_autofree char *filename = g_strdup_printf ("%s.%d", doc->title, version);
+              dest = g_file_get_child (dir, filename);
+            }
+          version++;
+
+          g_clear_error (&error);
+          output = g_file_create (dest, 0, NULL, &error);
+        }
+      while (output == NULL && g_error_matches (error, G_IO_ERROR, G_IO_ERROR_EXISTS));
+
+      if (output == NULL)
+        {
+          g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+                                                 "%s", error->message);
+          goto out;
+        }
     }
+  else
+    {
+      dest = g_file_new_for_uri (doc->uri);
+
+      output = g_file_replace (dest, NULL, FALSE, 0, NULL, &error);
+      if (output == NULL)
+        {
+          g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+                                                 "%s", error->message);
+          goto out;
+        }
+    }
+
+  /* TODO:
+     This copy should be done async, and ensure it can use splice().
+     Take care though so that we're still handling the case of two concurrent
+     updates to a new document. Only the first should look at the title
+     and generate a uri. the next should use the same uri as the first.
+  */
 
   do
     {
@@ -496,8 +607,19 @@ xdp_document_handle_finish_update (XdpDocument *doc,
     }
   while (1);
 
-  retval = g_variant_new ("()");
-  g_dbus_method_invocation_return_value (invocation, retval);
+  if (doc->title)
+    {
+      g_clear_pointer (&doc->title, g_free);
+      g_free (doc->uri);
+      doc->uri = g_file_get_uri (dest);
+
+      gom_resource_save_async (GOM_RESOURCE (doc), new_document_saved, invocation);
+    }
+  else
+    {
+      retval = g_variant_new ("()");
+      g_dbus_method_invocation_return_value (invocation, retval);
+    }
 
  out:
   document_update_free (update);
@@ -1051,7 +1173,7 @@ xdp_document_for_uri (GomRepository      *repository,
   g_hash_table_iter_init (&iter, documents);
   while (g_hash_table_iter_next (&iter, NULL, (gpointer *)&doc))
     {
-      if (strcmp (uri, doc->uri) == 0)
+      if (strcmp (uri, doc->uri) == 0 && doc->title == NULL)
         {
           g_task_return_pointer (task, g_object_ref (doc), g_object_unref);
           return;
@@ -1062,6 +1184,8 @@ xdp_document_for_uri (GomRepository      *repository,
   if (add == NULL)
     {
       g_autoptr(GomFilter) filter = NULL;
+      g_autoptr(GomFilter) filter_uri = NULL;
+      g_autoptr(GomFilter) filter_title = NULL;
       GValue value = { 0, };
 
       add = g_new0 (DocumentAdd, 1);
@@ -1072,13 +1196,54 @@ xdp_document_for_uri (GomRepository      *repository,
 
       g_value_init (&value, G_TYPE_STRING);
       g_value_set_string (&value, uri);
-      filter = gom_filter_new_eq (XDP_TYPE_DOCUMENT, "uri", &value);
+      filter_uri = gom_filter_new_eq (XDP_TYPE_DOCUMENT, "uri", &value);
+      filter_title = gom_filter_new_is_null (XDP_TYPE_DOCUMENT, "title");
+      filter = gom_filter_new_and (filter_uri, filter_title);
 
       gom_repository_find_one_async (repository, XDP_TYPE_DOCUMENT,
                                      filter, find_one_for_uri_cb, add);
     }
   else
     add->pending = g_list_append (add->pending, g_object_ref (task));
+}
+
+static void
+document_with_title_saved (GObject *source_object,
+                           GAsyncResult *result,
+                           gpointer data)
+{
+  GomResource *resource = GOM_RESOURCE (source_object);
+  XdpDocument *doc = XDP_DOCUMENT (source_object);
+  g_autoptr(GTask) task = G_TASK (data);
+  g_autoptr(GError) error = NULL;
+
+  if (!gom_resource_save_finish (resource, result, &error))
+    {
+      g_task_return_new_error (task, error->domain, error->code, error->message);
+      return;
+    }
+
+  g_hash_table_insert (documents, &doc->id, g_object_ref (doc));
+  g_task_return_pointer (task, g_object_ref (doc), g_object_unref);
+}
+
+void
+xdp_document_for_uri_and_title (GomRepository      *repository,
+                                const char         *uri,
+                                const char         *title,
+                                GCancellable       *cancellable,
+                                GAsyncReadyCallback callback,
+                                gpointer            user_data)
+{
+  g_autoptr (XdpDocument) doc = NULL;
+  g_autoptr (GTask) task = NULL;
+
+  ensure_documents ();
+
+  task = g_task_new (repository, cancellable, callback, user_data);
+
+  doc = xdp_document_new_with_title (repository, uri, title);
+  gom_resource_save_async (GOM_RESOURCE (doc), document_with_title_saved, g_object_ref (task));
 }
 
 XdpDocument *

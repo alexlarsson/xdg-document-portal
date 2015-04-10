@@ -12,6 +12,9 @@ G_DECLARE_FINAL_TYPE(XdpDocument, xdp_document, XDP, DOCUMENT, GomResource);
 
 XdpDocument *xdp_document_new (GomRepository *repo,
                                const char *uri);
+XdpDocument *xdp_document_new_with_title (GomRepository *repo,
+                                          const char *base_uri,
+                                          const char *title);
 
 gint64 xdp_document_get_id (XdpDocument *doc);
 
@@ -47,6 +50,14 @@ void xdp_document_for_uri (GomRepository      *repository,
 XdpDocument * xdp_document_for_uri_finish (GomRepository *repository,
                                            GAsyncResult    *result,
                                            GError         **error);
+
+void
+xdp_document_for_uri_and_title (GomRepository      *repository,
+                                const char         *uri,
+                                const char         *title,
+                                GCancellable       *cancellable,
+                                GAsyncReadyCallback callback,
+                                gpointer            user_data);
 
 G_END_DECLS
 

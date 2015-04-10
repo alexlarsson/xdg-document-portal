@@ -7,6 +7,7 @@ noinst_PROGRAMS = \
 	xdp-cat \
 	xdp-update \
 	xdp-add \
+	xdp-new \
 	$(NULL)
 
 libexec_PROGRAMS = \
@@ -84,3 +85,11 @@ xdp_add_SOURCES = \
 
 xdp_add_LDADD = $(BASE_LIBS)
 xdp_add_CFLAGS = $(BASE_CFLAGS)
+
+xdp_new_SOURCES = \
+	xdp-new.c		\
+	$(dbus_built_sources)	\
+	$(NULL)
+
+xdp_new_LDADD = $(BASE_LIBS)
+xdp_new_CFLAGS = $(BASE_CFLAGS)

@@ -660,10 +660,6 @@ xdp_document_handle_get_info (XdpDocument *doc,
     "standard::content-type",
     "standard::size",
     "etag::value",
-    "thumbnail::path"
-    "thumbnail::failed",
-    "thumbnail::is-valid",
-    "preview::icon",
     "access::can-read",
     "access::can-write",
     NULL

@@ -560,6 +560,127 @@ xdp_document_handle_grant_permissions (XdpDocument *doc,
   xdp_document_grant_permissions (doc, target_app_id, perms, NULL, permissions_granted, g_object_ref (invocation));
 }
 
+static void
+get_info_cb (GObject *source_object,
+             GAsyncResult *result,
+             gpointer data)
+{
+  GFile *file = G_FILE (source_object);
+  GDBusMethodInvocation *invocation = data;
+  g_autoptr (GFileInfo) info = NULL;
+  g_autoptr (GError) error = NULL;
+  GVariant *parameters;
+  const char *window;
+  const char **attributes;
+  GVariantBuilder builder;
+  gint i;
+
+  info = g_file_query_info_finish (file, result, &error);
+  if (info == NULL)
+    {
+      g_dbus_method_invocation_return_gerror (invocation, error);
+      return;
+    }
+
+  parameters = g_dbus_method_invocation_get_parameters (invocation);
+  g_variant_get (parameters, "(&s^a&s)", &window, &attributes);
+
+  g_variant_builder_init (&builder, G_VARIANT_TYPE_VARDICT);
+  for (i = 0; attributes[i]; i++)
+    {
+      GFileAttributeType type;
+      gpointer value;
+      GVariant *v = NULL;
+
+      if (!g_file_info_get_attribute_data (info, attributes[i], &type, &value, NULL))
+        continue;
+
+      switch (type)
+        {
+        case G_FILE_ATTRIBUTE_TYPE_STRING:
+          v = g_variant_new_string ((gchar*)value);
+          break;
+
+        case G_FILE_ATTRIBUTE_TYPE_BYTE_STRING:
+          v = g_variant_new_bytestring ((gchar*)value);
+          break;
+
+        case G_FILE_ATTRIBUTE_TYPE_BOOLEAN:
+          v = g_variant_new_boolean (*(gboolean*)value);
+          break;
+
+        case G_FILE_ATTRIBUTE_TYPE_UINT32:
+          v = g_variant_new_uint32 (*(guint32*)value);
+          break;
+
+        case G_FILE_ATTRIBUTE_TYPE_INT32:
+          v = g_variant_new_int32 (*(gint32*)value);
+          break;
+
+        case G_FILE_ATTRIBUTE_TYPE_UINT64:
+          v = g_variant_new_uint64 (*(guint64*)value);
+          break;
+
+        case G_FILE_ATTRIBUTE_TYPE_INT64:
+          v = g_variant_new_int64 (*(gint64*)value);
+          break;
+
+        case G_FILE_ATTRIBUTE_TYPE_STRINGV:
+          v = g_variant_new_strv ((const gchar * const *)value, -1);
+          break;
+
+        case G_FILE_ATTRIBUTE_TYPE_OBJECT:
+        case G_FILE_ATTRIBUTE_TYPE_INVALID:
+          continue;
+        }
+
+      g_variant_builder_add (&builder, "{sv}", attributes[i], v);
+    }
+
+  g_dbus_method_invocation_return_value (invocation, g_variant_new ("(a{sv})", &builder));
+}
+
+static void
+xdp_document_handle_get_info (XdpDocument *doc,
+                              GDBusMethodInvocation *invocation,
+                              const char *app_id,
+                              GVariant *parameters)
+{
+  const char *window;
+  const char **attributes;
+  g_autoptr (GFile) file = NULL;
+  GString *s = NULL;
+  g_autofree char *attrs = NULL;
+  gint i;
+
+  g_variant_get (parameters, "(&s^a&s)", &window, &attributes);
+
+  if (!xdp_document_has_permissions (doc, app_id, XDP_PERMISSION_FLAGS_READ))
+    {
+      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+                                             "No permissions to get file info");
+      return;
+    }
+
+  s = g_string_new ("");
+  for (i = 0; attributes[i]; i++)
+    {
+      if (i > 0)
+        g_string_append_c (s, ',');
+      g_string_append (s, attributes[i]);
+    }
+  attrs = g_string_free (s, FALSE);
+
+  file = g_file_new_for_uri (doc->uri);
+
+  g_file_query_info_async (file, attrs,
+                           G_FILE_QUERY_INFO_NONE,
+                           G_PRIORITY_DEFAULT,
+                           NULL,
+                           get_info_cb,
+                           invocation);
+}
+
 struct {
   const char *name;
   const char *args;
@@ -571,7 +692,8 @@ struct {
   { "Read", "(s)", xdp_document_handle_read},
   { "PrepareUpdate", "(ssas)", xdp_document_handle_prepare_update},
   { "FinishUpdate", "(su)", xdp_document_handle_finish_update},
-  { "GrantPermissions", "(sas)", xdp_document_handle_grant_permissions}
+  { "GrantPermissions", "(sas)", xdp_document_handle_grant_permissions},
+  { "GetInfo", "(sas)", xdp_document_handle_get_info}
 };
 
 void

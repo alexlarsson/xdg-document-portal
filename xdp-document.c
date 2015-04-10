@@ -652,6 +652,22 @@ xdp_document_handle_get_info (XdpDocument *doc,
   GString *s = NULL;
   g_autofree char *attrs = NULL;
   gint i;
+  const gchar * const allowed_attributes[] = {
+    "standard::name",
+    "standard::display-name",
+    "standard::icon",
+    "standard::symbolic-icon",
+    "standard::content-type",
+    "standard::size",
+    "etag::value",
+    "thumbnail::path"
+    "thumbnail::failed",
+    "thumbnail::is-valid",
+    "preview::icon",
+    "access::can-read",
+    "access::can-write",
+    NULL
+  };
 
   g_variant_get (parameters, "(&s^a&s)", &window, &attributes);
 
@@ -665,6 +681,14 @@ xdp_document_handle_get_info (XdpDocument *doc,
   s = g_string_new ("");
   for (i = 0; attributes[i]; i++)
     {
+      if (!g_strv_contains (allowed_attributes, attributes[i]))
+        {
+          g_string_free (s, TRUE);
+          g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+                                                 "Not an allowed attribute: %s", attributes[i]);
+          return;
+        }
+
       if (i > 0)
         g_string_append_c (s, ',');
       g_string_append (s, attributes[i]);

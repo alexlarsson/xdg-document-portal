@@ -560,6 +560,16 @@ xdp_document_handle_grant_permissions (XdpDocument *doc,
   xdp_document_grant_permissions (doc, target_app_id, perms, NULL, permissions_granted, g_object_ref (invocation));
 }
 
+static void
+xdp_document_handle_get_info (XdpDocument *doc,
+                              GDBusMethodInvocation *invocation,
+                              const char *app_id,
+                              GVariant *parameters)
+{
+  g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+                                         "Not implemented");
+}
+
 struct {
   const char *name;
   const char *args;
@@ -571,7 +581,8 @@ struct {
   { "Read", "(s)", xdp_document_handle_read},
   { "PrepareUpdate", "(ssas)", xdp_document_handle_prepare_update},
   { "FinishUpdate", "(su)", xdp_document_handle_finish_update},
-  { "GrantPermissions", "(sas)", xdp_document_handle_grant_permissions}
+  { "GrantPermissions", "(sas)", xdp_document_handle_grant_permissions},
+  { "GetInfo", "(sas)", xdp_document_handle_get_info}
 };
 
 void

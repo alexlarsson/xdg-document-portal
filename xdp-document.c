@@ -560,13 +560,20 @@ xdp_document_handle_grant_permissions (XdpDocument *doc,
   xdp_document_grant_permissions (doc, target_app_id, perms, NULL, permissions_granted, g_object_ref (invocation));
 }
 
+typedef struct {
+  GDBusMethodInvocation *invocation;
+  XdpPermissionFlags permissions;
+} InfoData;
+
 static void
 get_info_cb (GObject *source_object,
              GAsyncResult *result,
              gpointer data)
 {
   GFile *file = G_FILE (source_object);
-  GDBusMethodInvocation *invocation = data;
+  g_autofree InfoData *info_data = data;
+  GDBusMethodInvocation *invocation = info_data->invocation;
+  XdpPermissionFlags permissions = info_data->permissions;
   g_autoptr (GFileInfo) info = NULL;
   g_autoptr (GError) error = NULL;
   GVariant *parameters;
@@ -634,6 +641,22 @@ get_info_cb (GObject *source_object,
           continue;
         }
 
+      if (strcmp (attributes[i], "access::can-read") == 0)
+        {
+          gboolean b = g_variant_get_boolean (v);
+
+          g_variant_unref (v);
+          v = g_variant_new_boolean (b && ((permissions & XDP_PERMISSION_FLAGS_READ) != 0));
+        }
+      else if (strcmp (attributes[i], "access::can-write") == 0)
+        {
+          gboolean b = g_variant_get_boolean (v);
+
+          g_variant_unref (v);
+          v = g_variant_new_boolean (b && ((permissions & XDP_PERMISSION_FLAGS_WRITE) != 0));
+        }
+
+
       g_variant_builder_add (&builder, "{sv}", attributes[i], v);
     }
 
@@ -664,6 +687,7 @@ xdp_document_handle_get_info (XdpDocument *doc,
     "access::can-write",
     NULL
   };
+  InfoData *data;
 
   g_variant_get (parameters, "(&s^a&s)", &window, &attributes);
 
@@ -693,12 +717,16 @@ xdp_document_handle_get_info (XdpDocument *doc,
 
   file = g_file_new_for_uri (doc->uri);
 
+  data = g_new (InfoData, 1);
+  data->invocation = invocation;
+  data->permissions = xdp_document_get_permissions (doc, app_id);
+
   g_file_query_info_async (file, attrs,
                            G_FILE_QUERY_INFO_NONE,
                            G_PRIORITY_DEFAULT,
                            NULL,
                            get_info_cb,
-                           invocation);
+                           data);
 }
 
 struct {

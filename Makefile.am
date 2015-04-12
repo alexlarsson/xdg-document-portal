@@ -3,15 +3,12 @@ NULL =
 AM_CPPFLAGS =						\
 	$(NULL)
 
-noinst_PROGRAMS = \
-	xdp-cat \
-	xdp-update \
-	xdp-add \
-	xdp-new \
-	$(NULL)
-
 libexec_PROGRAMS = \
 	xdg-document-portal \
+	$(NULL)
+
+bin_PROGRAMS = \
+	xdp \
 	$(NULL)
 
 dbus_built_sources = xdp-dbus.c xdp-dbus.h
@@ -62,34 +59,14 @@ xdg_document_portal_SOURCES = \
 xdg_document_portal_LDADD = $(BASE_LIBS) $(GOM_LIBS)
 xdg_document_portal_CFLAGS = $(BASE_CFLAGS) $(GOM_CFLAGS)
 
-xdp_cat_SOURCES = \
+xdp_SOURCES = \
+	xdp-tool.c		\
 	xdp-cat.c		\
-	$(dbus_built_sources)	\
-	$(NULL)
-
-xdp_cat_LDADD = $(BASE_LIBS)
-xdp_cat_CFLAGS = $(BASE_CFLAGS)
-
-xdp_update_SOURCES = \
+	xdp-add.c		\
+	xdp-new.c		\
 	xdp-update.c		\
 	$(dbus_built_sources)	\
 	$(NULL)
 
-xdp_update_LDADD = $(BASE_LIBS)
-xdp_update_CFLAGS = $(BASE_CFLAGS)
-
-xdp_add_SOURCES = \
-	xdp-add.c		\
-	$(dbus_built_sources)	\
-	$(NULL)
-
-xdp_add_LDADD = $(BASE_LIBS)
-xdp_add_CFLAGS = $(BASE_CFLAGS)
-
-xdp_new_SOURCES = \
-	xdp-new.c		\
-	$(dbus_built_sources)	\
-	$(NULL)
-
-xdp_new_LDADD = $(BASE_LIBS)
-xdp_new_CFLAGS = $(BASE_CFLAGS)
+xdp_LDADD = $(BASE_LIBS)
+xdp_CFLAGS = $(BASE_CFLAGS)

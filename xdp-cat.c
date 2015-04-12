@@ -13,7 +13,6 @@
 
 gboolean
 xdp_dbus_document_call_read_with_unix_fd_list_sync (XdpDbusDocument *proxy,
-                                                    const gchar     *arg_window,
                                                     GUnixFDList    **out_fd_list,
                                                     GVariant       **out_fd,
                                                     GCancellable    *cancellable,
@@ -22,7 +21,7 @@ xdp_dbus_document_call_read_with_unix_fd_list_sync (XdpDbusDocument *proxy,
   GVariant *_ret;
   _ret = g_dbus_proxy_call_with_unix_fd_list_sync (G_DBUS_PROXY (proxy),
                                                    "Read",
-                                                   g_variant_new ("(s)", arg_window),
+                                                   g_variant_new ("()"),
                                                    G_DBUS_CALL_FLAGS_NONE,
                                                    -1,
                                                    NULL,
@@ -84,7 +83,7 @@ main (int    argc,
     }
 
   fd_list = g_unix_fd_list_new ();
-  if (!xdp_dbus_document_call_read_with_unix_fd_list_sync (proxy, "foo", &fd_list, &fd_v, NULL, &error))
+  if (!xdp_dbus_document_call_read_with_unix_fd_list_sync (proxy, &fd_list, &fd_v, NULL, &error))
     {
       g_printerr ("%s\n", error->message);
       return 1;

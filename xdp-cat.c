@@ -37,7 +37,7 @@ _out:
 }
 
 int
-do_cat (const char *arg)
+do_cat (int argc, const char *argv[])
 {
   XdpDbusDocument *proxy;
   GDBusConnection *bus;
@@ -59,7 +59,13 @@ do_cat (const char *arg)
       return 1;
     }
 
-  path = g_build_filename ("/org/freedesktop/portal/document", arg, NULL);
+  if (argc != 1)
+    {
+      g_printerr ("Usage: xdp add ID\n");
+      return 1;
+    }
+
+  path = g_build_filename ("/org/freedesktop/portal/document", argv[0], NULL);
   proxy = xdp_dbus_document_proxy_new_sync (bus,
                                             G_DBUS_PROXY_FLAGS_DO_NOT_LOAD_PROPERTIES | G_DBUS_PROXY_FLAGS_DO_NOT_CONNECT_SIGNALS,
                                             "org.freedesktop.portal.DocumentPortal",

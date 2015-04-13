@@ -372,15 +372,12 @@ xdp_document_handle_read (XdpDocument *doc,
                           const char *app_id,
                           GVariant *parameters)
 {
-  const char *window;
   g_autoptr(GFile) file = NULL;
   g_autofree char *path = NULL;
   GUnixFDList *fd_list = NULL;
   g_autoptr(GError) error = NULL;
   int fd, fd_id;
   GVariant *retval;
-
-  g_variant_get (parameters, "(&s)", &window);
 
   if (!xdp_document_has_permissions (doc, app_id, XDP_PERMISSION_FLAGS_READ))
     {
@@ -440,7 +437,7 @@ xdp_document_handle_prepare_update (XdpDocument *doc,
                                     const char *app_id,
                                     GVariant *parameters)
 {
-  const char *window, *etag, **flags;
+  const char *etag, **flags;
   g_autoptr(GFile) file = NULL;
   g_autofree char *path = NULL;
   g_autofree char *dir = NULL;
@@ -452,7 +449,7 @@ xdp_document_handle_prepare_update (XdpDocument *doc,
   GVariant *retval;
   XdpDocumentUpdate *update;
 
-  g_variant_get (parameters, "(&s&s^a&s)", &window, &etag, &flags);
+  g_variant_get (parameters, "(&s^a&s)", &etag, &flags);
 
   if (!xdp_document_has_permissions (doc, app_id, XDP_PERMISSION_FLAGS_WRITE))
     {
@@ -557,7 +554,6 @@ xdp_document_handle_finish_update (XdpDocument *doc,
                                    const char *app_id,
                                    GVariant *parameters)
 {
-  const char *window;
   guint32 id;
   g_autoptr(GError) error = NULL;
   g_autoptr(GFile) dir = NULL;
@@ -569,7 +565,7 @@ xdp_document_handle_finish_update (XdpDocument *doc,
   char buffer[8192];
   GList *l;
 
-  g_variant_get (parameters, "(&su)", &window, &id);
+  g_variant_get (parameters, "(u)", &id);
 
   if (!xdp_document_has_permissions (doc, app_id, XDP_PERMISSION_FLAGS_WRITE))
     {
@@ -805,7 +801,6 @@ get_info_cb (GObject *source_object,
   g_autoptr (GFileInfo) info = NULL;
   g_autoptr (GError) error = NULL;
   GVariant *parameters;
-  const char *window;
   const char **attributes;
   GVariantBuilder builder;
   gint i;
@@ -818,7 +813,7 @@ get_info_cb (GObject *source_object,
     }
 
   parameters = g_dbus_method_invocation_get_parameters (invocation);
-  g_variant_get (parameters, "(&s^a&s)", &window, &attributes);
+  g_variant_get (parameters, "(^a&s)", &attributes);
 
   g_variant_builder_init (&builder, G_VARIANT_TYPE_VARDICT);
   for (i = 0; attributes[i]; i++)
@@ -897,7 +892,6 @@ xdp_document_handle_get_info (XdpDocument *doc,
                               const char *app_id,
                               GVariant *parameters)
 {
-  const char *window;
   const char **attributes;
   g_autoptr (GFile) file = NULL;
   GString *s = NULL;
@@ -917,7 +911,7 @@ xdp_document_handle_get_info (XdpDocument *doc,
   };
   InfoData *data;
 
-  g_variant_get (parameters, "(&s^a&s)", &window, &attributes);
+  g_variant_get (parameters, "(^a&s)", &attributes);
 
   if (!xdp_document_has_permissions (doc, app_id, XDP_PERMISSION_FLAGS_READ))
     {

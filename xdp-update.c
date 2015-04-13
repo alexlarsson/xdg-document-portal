@@ -14,7 +14,6 @@
 
 gboolean
 xdp_dbus_document_call_prepare_update_with_unix_fd_list_sync (XdpDbusDocument *proxy,
-                                                              const gchar     *arg_window,
                                                               const gchar     *arg_etag,
                                                               gchar          **arg_flags,
                                                               guint32         *out_id,
@@ -27,8 +26,7 @@ xdp_dbus_document_call_prepare_update_with_unix_fd_list_sync (XdpDbusDocument *p
 
   _ret = g_dbus_proxy_call_with_unix_fd_list_sync (G_DBUS_PROXY (proxy),
                                                    "PrepareUpdate",
-                                                   g_variant_new ("(ss^as)",
-                                                                  arg_window,
+                                                   g_variant_new ("(s^as)",
                                                                   arg_etag,
                                                                   arg_flags),
                                                    G_DBUS_CALL_FLAGS_NONE,
@@ -90,7 +88,7 @@ do_update (int argc, char **argv)
     }
 
   fd_list = g_unix_fd_list_new ();
-  if (!xdp_dbus_document_call_prepare_update_with_unix_fd_list_sync (proxy, "foo", "", flags, &id, &fd_list, &fd_v, NULL, &error))
+  if (!xdp_dbus_document_call_prepare_update_with_unix_fd_list_sync (proxy, "", flags, &id, &fd_list, &fd_v, NULL, &error))
     {
       g_printerr ("%s\n", error->message);
       return 1;
@@ -141,7 +139,7 @@ do_update (int argc, char **argv)
   g_object_unref (fd_list);
 
 
-  if (!xdp_dbus_document_call_finish_update_sync (proxy, "foo", id, NULL, &error))
+  if (!xdp_dbus_document_call_finish_update_sync (proxy, id, NULL, &error))
     {
       g_printerr ("%s\n", error->message);
       return 1;

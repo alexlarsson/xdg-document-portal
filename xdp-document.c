@@ -924,7 +924,7 @@ document_load_abort (DocumentLoad *load, GError *error)
     {
       GTask *task = l->data;
       if (error)
-        g_task_return_new_error (task, error->domain, error->code, error->message);
+        g_task_return_new_error (task, error->domain, error->code, "%s", error->message);
       else
         g_task_return_new_error (task, XDP_ERROR, XDP_ERROR_FAILED, "Loading document failed");
     }
@@ -961,7 +961,7 @@ document_add_abort (DocumentAdd *add, GError *error)
     {
       GTask *task = l->data;
       if (error)
-        g_task_return_new_error (task, error->domain, error->code, error->message);
+        g_task_return_new_error (task, error->domain, error->code, "%s", error->message);
       else
         g_task_return_new_error (task, XDP_ERROR, XDP_ERROR_FAILED, "Adding document failed");
     }
@@ -1267,7 +1267,7 @@ document_with_title_saved (GObject *source_object,
 
   if (!gom_resource_save_finish (resource, result, &error))
     {
-      g_task_return_new_error (task, error->domain, error->code, error->message);
+      g_task_return_new_error (task, error->domain, error->code, "%s", error->message);
       return;
     }
 

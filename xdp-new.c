@@ -6,8 +6,7 @@
 #include "xdp-dbus.h"
 
 int
-main (int    argc,
-      char **argv)
+do_new (int argc, char **argv)
 {
   GDBusConnection *bus;
   g_autoptr(GFile) file = NULL;
@@ -22,18 +21,16 @@ main (int    argc,
 
   setlocale (LC_ALL, "");
 
-  if (argc < 4)
+  if (argc != 3)
     {
-      g_printerr ("Missing arg\n");
+      g_printerr ("Usage: xdp new URI TITLE APPID\n");
       return 1;
     }
 
-  g_set_prgname (argv[0]);
-
-  file = g_file_new_for_commandline_arg (argv[1]);
+  file = g_file_new_for_commandline_arg (argv[0]);
   uri = g_file_get_uri (file);
-  title = argv[2];
-  appid = argv[3];
+  title = argv[1];
+  appid = argv[2];
 
   bus = g_bus_get_sync (G_BUS_TYPE_SESSION, NULL, &error);
   if (bus == NULL)

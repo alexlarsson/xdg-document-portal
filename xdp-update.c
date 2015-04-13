@@ -46,8 +46,7 @@ _out:
 }
 
 int
-main (int    argc,
-      char **argv)
+do_update (int argc, char **argv)
 {
   XdpDbusDocument *proxy;
   GDBusConnection *bus;
@@ -65,13 +64,11 @@ main (int    argc,
 
   setlocale (LC_ALL, "");
 
-  if (argc < 2)
+  if (argc != 1)
     {
-      g_printerr ("Missing arg\n");
+      g_printerr ("Usage: xdp update HANDLE\n");
       return 1;
     }
-
-  g_set_prgname (argv[0]);
 
   bus = g_bus_get_sync (G_BUS_TYPE_SESSION, NULL, &error);
   if (bus == NULL)
@@ -80,7 +77,7 @@ main (int    argc,
       return 1;
     }
 
-  path = g_build_filename ("/org/freedesktop/portal/document", argv[1], NULL);
+  path = g_build_filename ("/org/freedesktop/portal/document", argv[0], NULL);
   proxy = xdp_dbus_document_proxy_new_sync (bus,
                                             G_DBUS_PROXY_FLAGS_DO_NOT_LOAD_PROPERTIES | G_DBUS_PROXY_FLAGS_DO_NOT_CONNECT_SIGNALS,
                                             "org.freedesktop.portal.DocumentPortal",

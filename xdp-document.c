@@ -219,7 +219,7 @@ typedef struct
 {
   GTask *task;
   XdpDocument *doc;
-} PermissionData;
+} SavePermissionsData;
 
 static void
 permissions_saved (GObject *source_object,
@@ -228,7 +228,7 @@ permissions_saved (GObject *source_object,
 {
   GomResource *resource = GOM_RESOURCE (source_object);
   XdpPermissions *permissions = XDP_PERMISSIONS (source_object);
-  g_autofree PermissionData *data = user_data;
+  g_autofree SavePermissionsData *data = user_data;
   g_autoptr (GTask) task = data->task;
   g_autoptr (XdpDocument) doc = data->doc;
   g_autoptr (GError) error = NULL;
@@ -254,7 +254,7 @@ xdp_document_grant_permissions (XdpDocument        *doc,
   XdpPermissions *permissions = NULL;
   GomRepository *repository;
   g_autoptr (GTask) task = NULL;
-  PermissionData *data;
+  SavePermissionsData *data;
 
   task = g_task_new (doc, cancellable, callback, user_data);
 
@@ -262,7 +262,7 @@ xdp_document_grant_permissions (XdpDocument        *doc,
 
   permissions = xdp_permissions_new (repository, doc, app_id, perms, FALSE);
 
-  data = g_new (PermissionData, 1);
+  data = g_new (SavePermissionsData, 1);
   data->task = g_object_ref (task);
   data->doc = g_object_ref (doc);
 
@@ -282,6 +282,76 @@ xdp_document_grant_permissions_finish (XdpDocument   *doc,
     return xdp_permissions_get_id (permissions);
 
   return 0;
+}
+
+typedef struct {
+  GTask *task;
+  XdpDocument *doc;
+} DeletePermissionsData;
+
+static void
+permissions_deleted (GObject *source_object,
+                     GAsyncResult *result,
+                     gpointer user_data)
+{
+  GomResource *resource = GOM_RESOURCE (source_object);
+  XdpPermissions *permissions = XDP_PERMISSIONS (source_object);
+  g_autofree DeletePermissionsData *data = user_data;
+  g_autoptr (GTask) task = data->task;
+  g_autoptr (XdpDocument) doc = data->doc;
+  g_autoptr (GError) error = NULL;
+
+  if (!gom_resource_delete_finish (resource, result, &error))
+    {
+      g_task_return_error (task, error);
+      return;
+    }
+
+  doc->permissions = g_list_remove (doc->permissions, permissions);
+  g_object_unref (permissions);
+
+  g_task_return_boolean (task, TRUE);
+}
+
+void
+xdp_document_revoke_permissions (XdpDocument *doc,
+                                 gint64 handle,
+                                 GCancellable *cancellable,
+                                 GAsyncReadyCallback callback,
+                                 gpointer user_data)
+{
+  XdpPermissions *permissions = NULL;
+  g_autoptr (GTask) task = NULL;
+  GList *l;
+
+  task = g_task_new (doc, cancellable, callback, user_data);
+
+  for (l = doc->permissions; l; l = l->next)
+    {
+      permissions = l->data;
+
+      if (xdp_permissions_get_id (permissions) == handle)
+        {
+          DeletePermissionsData *data;
+
+          data = g_new (DeletePermissionsData, 1);
+          data->task = g_object_ref (task);
+          data->doc = g_object_ref (doc);
+
+          gom_resource_delete_async (GOM_RESOURCE (permissions), permissions_deleted, data);
+          return;
+        }
+    }
+
+  g_task_return_new_error (task, XDP_ERROR, XDP_ERROR_FAILED, "No such permissions");
+}
+
+gboolean
+xdp_document_revoke_permissions_finish (XdpDocument *doc,
+                                        GAsyncResult *result,
+                                        GError **error)
+{
+  return g_task_propagate_boolean (G_TASK (result), error);
 }
 
 gboolean
@@ -682,6 +752,42 @@ xdp_document_handle_grant_permissions (XdpDocument *doc,
   xdp_document_grant_permissions (doc, target_app_id, perms, NULL, permissions_granted, g_object_ref (invocation));
 }
 
+static void
+permissions_revoked (GObject *source_object,
+                     GAsyncResult *result,
+                     gpointer data)
+{
+  XdpDocument *doc = XDP_DOCUMENT (source_object);
+  GDBusMethodInvocation *invocation = data;
+  g_autoptr(GError) error = NULL;
+
+  xdp_document_revoke_permissions_finish (doc, result, &error);
+  if (error)
+    g_dbus_method_invocation_return_gerror (invocation, error);
+  else
+    g_dbus_method_invocation_return_value (invocation, g_variant_new ("()"));
+}
+
+static void
+xdp_document_handle_revoke_permissions (XdpDocument *doc,
+                                        GDBusMethodInvocation *invocation,
+                                        const char *app_id,
+                                        GVariant *parameters)
+{
+  gint64 handle;
+
+  g_variant_get (parameters, "(x)", &handle);
+
+  if (!xdp_document_has_permissions (doc, app_id, XDP_PERMISSION_FLAGS_GRANT_PERMISSIONS))
+    {
+      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+                                             "No permissions to revoke permissions");
+      return;
+    }
+
+  xdp_document_revoke_permissions (doc, handle, NULL, permissions_revoked, invocation);
+}
+
 typedef struct {
   GDBusMethodInvocation *invocation;
   XdpPermissionFlags permissions;
@@ -863,6 +969,7 @@ struct {
   { "PrepareUpdate", "(ssas)", xdp_document_handle_prepare_update},
   { "FinishUpdate", "(su)", xdp_document_handle_finish_update},
   { "GrantPermissions", "(sas)", xdp_document_handle_grant_permissions},
+  { "RevokePermissions", "(x)", xdp_document_handle_revoke_permissions},
   { "GetInfo", "(sas)", xdp_document_handle_get_info}
 };
 
@@ -924,7 +1031,7 @@ document_load_abort (DocumentLoad *load, GError *error)
     {
       GTask *task = l->data;
       if (error)
-        g_task_return_new_error (task, error->domain, error->code, error->message);
+        g_task_return_new_error (task, error->domain, error->code, "%s", error->message);
       else
         g_task_return_new_error (task, XDP_ERROR, XDP_ERROR_FAILED, "Loading document failed");
     }
@@ -961,7 +1068,7 @@ document_add_abort (DocumentAdd *add, GError *error)
     {
       GTask *task = l->data;
       if (error)
-        g_task_return_new_error (task, error->domain, error->code, error->message);
+        g_task_return_new_error (task, error->domain, error->code, "%s", error->message);
       else
         g_task_return_new_error (task, XDP_ERROR, XDP_ERROR_FAILED, "Adding document failed");
     }
@@ -1267,7 +1374,7 @@ document_with_title_saved (GObject *source_object,
 
   if (!gom_resource_save_finish (resource, result, &error))
     {
-      g_task_return_new_error (task, error->domain, error->code, error->message);
+      g_task_return_new_error (task, error->domain, error->code, "%s", error->message);
       return;
     }
 

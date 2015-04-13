@@ -61,5 +61,8 @@
       <arg type='as' name='permissions' direction='in'/>
       <arg type='x' name='cookie' direction='out'/>
     </method>
+    <method name="RevokePermissions">
+      <arg type='x' name='cookie' direction='in'/>
+    </method>
   </interface>
 </node>

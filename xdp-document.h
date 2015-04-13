@@ -29,6 +29,14 @@ void xdp_document_grant_permissions (XdpDocument *doc,
 gint64 xdp_document_grant_permissions_finish (XdpDocument  *doc,
                                               GAsyncResult  *result,
                                               GError       **error);
+void xdp_document_revoke_permissions (XdpDocument *doc,
+                                      gint64 handle,
+                                      GCancellable *cancellable,
+                                      GAsyncReadyCallback callback,
+                                      gpointer user_data);
+gboolean xdp_document_revoke_permissions_finish (XdpDocument *doc,
+                                                 GAsyncResult *result,
+                                                 GError **error);
 
 void xdp_document_handle_call (XdpDocument *doc,
                                GDBusMethodInvocation *invocation,

@@ -219,7 +219,7 @@ typedef struct
 {
   GTask *task;
   XdpDocument *doc;
-} PermissionData;
+} SavePermissionsData;
 
 static void
 permissions_saved (GObject *source_object,
@@ -228,7 +228,7 @@ permissions_saved (GObject *source_object,
 {
   GomResource *resource = GOM_RESOURCE (source_object);
   XdpPermissions *permissions = XDP_PERMISSIONS (source_object);
-  g_autofree PermissionData *data = user_data;
+  g_autofree SavePermissionsData *data = user_data;
   g_autoptr (GTask) task = data->task;
   g_autoptr (XdpDocument) doc = data->doc;
   g_autoptr (GError) error = NULL;
@@ -254,7 +254,7 @@ xdp_document_grant_permissions (XdpDocument        *doc,
   XdpPermissions *permissions = NULL;
   GomRepository *repository;
   g_autoptr (GTask) task = NULL;
-  PermissionData *data;
+  SavePermissionsData *data;
 
   task = g_task_new (doc, cancellable, callback, user_data);
 
@@ -262,7 +262,7 @@ xdp_document_grant_permissions (XdpDocument        *doc,
 
   permissions = xdp_permissions_new (repository, doc, app_id, perms, FALSE);
 
-  data = g_new (PermissionData, 1);
+  data = g_new (SavePermissionsData, 1);
   data->task = g_object_ref (task);
   data->doc = g_object_ref (doc);
 

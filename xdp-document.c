@@ -959,12 +959,12 @@ struct {
                     const char *app_id,
                     GVariant *parameters);
 } doc_methods[] = {
-  { "Read", "(s)", xdp_document_handle_read},
-  { "PrepareUpdate", "(ssas)", xdp_document_handle_prepare_update},
-  { "FinishUpdate", "(su)", xdp_document_handle_finish_update},
+  { "Read", "()", xdp_document_handle_read},
+  { "PrepareUpdate", "(sas)", xdp_document_handle_prepare_update},
+  { "FinishUpdate", "(u)", xdp_document_handle_finish_update},
   { "GrantPermissions", "(sas)", xdp_document_handle_grant_permissions},
   { "RevokePermissions", "(x)", xdp_document_handle_revoke_permissions},
-  { "GetInfo", "(sas)", xdp_document_handle_get_info}
+  { "GetInfo", "(as)", xdp_document_handle_get_info}
 };
 
 void

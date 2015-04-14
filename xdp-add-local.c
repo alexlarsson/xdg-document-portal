@@ -4,6 +4,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <stdio.h>
 
 #include <gio/gio.h>
 #include <gio/gunixfdlist.h>
@@ -42,7 +43,7 @@ do_add_local (int argc, char *argv[])
 
   if (fd == -1)
     {
-      perror ("Error opening path", path);
+      perror ("Error opening path");
       return 1;
     }
 

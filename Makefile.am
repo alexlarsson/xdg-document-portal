@@ -63,6 +63,7 @@ xdp_SOURCES = \
 	xdp-tool.c		\
 	xdp-cat.c		\
 	xdp-add.c		\
+	xdp-add-local.c		\
 	xdp-new.c		\
 	xdp-update.c		\
 	$(dbus_built_sources)	\

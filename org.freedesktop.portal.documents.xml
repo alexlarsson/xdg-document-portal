@@ -34,6 +34,9 @@
       <arg type='s' name='title' direction='in'/>
       <arg type='x' name='handle' direction='out'/>
     </method>
+    <method name="Remove">
+      <arg type='x' name='handle' direction='in'/>
+    </method>
   </interface>
   <interface name='org.freedesktop.portal.Document'>
     <method name="Read">

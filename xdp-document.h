@@ -67,6 +67,15 @@ xdp_document_for_uri_and_title (GomRepository      *repository,
                                 GAsyncReadyCallback callback,
                                 gpointer            user_data);
 
+void xdp_document_remove (GomRepository       *repository,
+                          gint64               id,
+                          GCancellable        *cancellable,
+                          GAsyncReadyCallback  callback,
+                          gpointer             user_data);
+gboolean xdp_document_remove_finish (GomRepository  *repository,
+                                     GAsyncResult   *result,
+                                     GError        **error);
+
 G_END_DECLS
 
 #endif /* XDP_DOCUMENT_H */

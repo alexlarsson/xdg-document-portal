@@ -53,6 +53,7 @@ static GParamSpec *gParamSpecs [LAST_PROP];
 static GHashTable *documents;
 static GHashTable *loads;
 static GHashTable *adds;
+static GHashTable *removals;
 
 typedef struct {
   gint64 id;
@@ -65,6 +66,13 @@ typedef struct
   gchar *uri;
   GList *pending;
 } DocumentAdd;
+
+typedef struct
+{
+  gint64 id;
+  XdpDocument *doc;
+  GList *pending;
+} DocumentRemoval;
 
 static void
 xdp_document_finalize (GObject *object)
@@ -1122,6 +1130,46 @@ document_add_complete (DocumentAdd *add, XdpDocument *doc)
 }
 
 static void
+document_removal_free (DocumentRemoval *removal)
+{
+  g_list_free_full (removal->pending, g_object_unref);
+  g_free (removal);
+}
+
+static void
+document_removal_abort (DocumentRemoval *removal, GError *error)
+{
+  GList *l;
+
+  for (l = removal->pending; l != NULL; l = l->next)
+    {
+      GTask *task = l->data;
+      if (error)
+        g_task_return_new_error (task, error->domain, error->code, "%s", error->message);
+      else
+        g_task_return_new_error (task, XDP_ERROR, XDP_ERROR_FAILED, "Removing document failed");
+    }
+
+  g_hash_table_remove (removals, &removal->id);
+}
+
+static void
+document_removal_complete (DocumentRemoval *removal)
+{
+  GList *l;
+
+  for (l = removal->pending; l != NULL; l = l->next)
+    {
+      GTask *task = l->data;
+
+      g_task_return_boolean (task, TRUE);
+    }
+
+  g_hash_table_remove (removals, &removal->id);
+}
+
+
+static void
 ensure_documents (void)
 {
   if (documents == NULL)
@@ -1135,6 +1183,10 @@ ensure_documents (void)
   if (adds == NULL)
     adds = g_hash_table_new_full (g_str_hash, g_str_equal,
                                    NULL, (GDestroyNotify)document_add_free);
+
+  if (removals == NULL)
+    removals = g_hash_table_new_full (g_int64_hash, g_int64_equal,
+                                      NULL, (GDestroyNotify)document_removal_free);
 }
 
 XdpDocument *
@@ -1438,4 +1490,109 @@ xdp_document_for_uri_finish (GomRepository *repository,
                              GError         **error)
 {
   return g_task_propagate_pointer (G_TASK (result), error);
+}
+
+static void
+document_removed (GObject *source,
+                  GAsyncResult *result,
+                  gpointer data)
+{
+  GomResource *resource = GOM_RESOURCE (source);
+  DocumentRemoval *removal = data;
+  g_autoptr (GError) error = NULL;
+
+  if (!gom_resource_delete_finish (resource, result, &error))
+    {
+      document_removal_abort (removal, error);
+      return;
+    }
+
+  g_hash_table_remove (documents, &removal->id);
+  document_removal_complete (removal);
+}
+
+static void
+remove_document (GObject *source,
+                 GAsyncResult *result,
+                 gpointer data)
+{
+  XdpDocument *doc = XDP_DOCUMENT (source);
+  DocumentRemoval *removal = data;
+  g_autoptr (GError) error = NULL;
+
+  if (!xdp_document_revoke_permissions_finish (doc, result, &error))
+    {
+      document_removal_abort (removal, error);
+      return;
+    }
+
+  if (doc->removals != NULL)
+    return;
+
+  if (doc->permissions != NULL)
+    {
+      document_removal_abort (removal, NULL);
+      return;
+    }
+
+  gom_resource_delete_async (GOM_RESOURCE (doc), document_removed, removal);
+}
+
+void
+xdp_document_remove (GomRepository       *repository,
+                     gint64               id,
+                     GCancellable        *cancellable,
+                     GAsyncReadyCallback  callback,
+                     gpointer             user_data)
+{
+  g_autoptr (XdpDocument) doc = NULL;
+  g_autoptr (GTask) task = NULL;
+  DocumentRemoval *removal;
+
+  ensure_documents ();
+
+  task = g_task_new (repository, cancellable, callback, user_data);
+
+  removal = g_hash_table_lookup (removals, &id);
+  if (removal != NULL)
+    {
+      removal->pending = g_list_prepend (removal->pending, g_object_ref (task));
+      return;
+    }
+
+  doc = g_hash_table_lookup (documents, &id);
+  if (doc != NULL)
+    {
+      GList *l;
+
+      removal = g_new0 (DocumentRemoval, 1);
+      removal->id = id;
+      removal->doc = doc;
+      removal->pending = g_list_prepend (removal->pending, g_object_ref (task));
+      g_hash_table_insert (removals, &removal->id, removal);
+
+      l = doc->permissions;
+      while (l)
+        {
+          GList *next = l->next;
+          XdpPermissions *permissions = l->data;
+          xdp_document_revoke_permissions (doc,
+                                           xdp_permissions_get_id (permissions),
+                                           NULL,
+                                           remove_document,
+                                           removal);
+          l = next;
+        }
+      return;
+    }
+
+  g_task_return_new_error (task, XDP_ERROR, XDP_ERROR_FAILED, "No document with this handle");
+}
+
+gboolean
+xdp_document_remove_finish (GomRepository  *repository,
+                            GAsyncResult   *result,
+                            GError        **error)
+{
+  return g_task_propagate_boolean (G_TASK (result), error);
 }

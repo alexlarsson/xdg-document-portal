@@ -3,7 +3,13 @@
 #include <locale.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <fcntl.h>
+
 #include <gio/gio.h>
+#include <gio/gunixfdlist.h>
 #include <gom/gom.h>
 #include "xdp-dbus.h"
 #include "xdp-document.h"
@@ -161,23 +167,80 @@ const GDBusSubtreeVTable subtree_vtable =
     subtree_dispatch
   };
 
+typedef struct {
+  GDBusMethodInvocation *invocation;
+  XdpDocument *doc;
+  char *app_id;
+  XdpPermissionFlags perms;
+} CreateDocData;
+
+static void
+create_doc_data_free (CreateDocData *data)
+{
+  g_clear_object (&data->invocation);
+  g_clear_object (&data->doc);
+  g_clear_pointer (&data->app_id, g_free);
+  g_free (data);
+}
+
+static CreateDocData *
+create_doc_data_new (GDBusMethodInvocation *invocation,
+                     const char *app_id)
+{
+  CreateDocData *data = g_new0 (CreateDocData, 1);
+
+  data->invocation = g_object_ref (invocation);
+  data->app_id = g_strdup (app_id);
+
+  return data;
+}
+
+G_DEFINE_AUTOPTR_CLEANUP_FUNC(CreateDocData, create_doc_data_free);
+
+static void
+new_grant_permissions_cb (GObject *source_object,
+                          GAsyncResult *result,
+                          gpointer _data)
+{
+  g_autoptr(CreateDocData) data = _data;
+  g_autoptr(GError) error = NULL;
+  gint64 permissions_handle;
+
+  permissions_handle = xdp_document_grant_permissions_finish (data->doc, result, &error);
+  if (permissions_handle == 0)
+    {
+      g_dbus_method_invocation_return_error (data->invocation,
+                                             XDP_ERROR, XDP_ERROR_FAILED,
+                                             "Failed to store: %s", error->message);
+      /* TODO: Clean up document */
+    }
+  else
+    g_dbus_method_invocation_return_value (data->invocation,
+                                           g_variant_new ("(x)", xdp_document_get_id (data->doc)));
+}
+
 static void
 got_document_for_uri_cb (GObject *source_object,
                          GAsyncResult *result,
-                         gpointer data)
+                         gpointer _data)
 {
-  GDBusMethodInvocation *invocation = data;
+  g_autoptr(CreateDocData) data = _data;
   g_autoptr(GError) error = NULL;
-  XdpDocument *doc;
 
-  doc = xdp_document_for_uri_finish (repository, result, &error);
-  if (doc == NULL)
-    g_dbus_method_invocation_return_error (invocation,
+  data->doc = xdp_document_for_uri_finish (repository, result, &error);
+  if (data->doc == NULL)
+    g_dbus_method_invocation_return_error (data->invocation,
                                            XDP_ERROR, XDP_ERROR_FAILED,
                                            "Failed to store: %s", error->message);
+  else if (data->perms != 0)
+    xdp_document_grant_permissions (data->doc,
+                                    data->app_id,
+                                    data->perms,
+                                    NULL,
+                                    new_grant_permissions_cb, g_steal_pointer (&data));
   else
-    g_dbus_method_invocation_return_value (invocation,
-                                           g_variant_new ("(x)", xdp_document_get_id (doc)));
+    g_dbus_method_invocation_return_value (data->invocation,
+                                           g_variant_new ("(x)", xdp_document_get_id (data->doc)));
 }
 
 static void
@@ -186,10 +249,11 @@ portal_add (GDBusMethodInvocation *invocation,
 {
   GVariant *parameters;
   const char *uri;
+  CreateDocData *data;
 
   if (app_id[0] != '\0')
     {
-      /* don't allow this from within the sandbox for now */
+      /* don't allow this from within the sandbox */
       g_dbus_method_invocation_return_error (invocation,
                                              XDP_ERROR, XDP_ERROR_FAILED,
                                              "Not allowed inside sandbox");
@@ -199,7 +263,89 @@ portal_add (GDBusMethodInvocation *invocation,
   parameters = g_dbus_method_invocation_get_parameters (invocation);
   g_variant_get (parameters, "(&s)", &uri);
 
-  xdp_document_for_uri (repository, uri, NULL, got_document_for_uri_cb, g_object_ref (invocation));
+  data = create_doc_data_new (invocation, app_id);
+
+  xdp_document_for_uri (repository, uri, NULL, got_document_for_uri_cb, g_steal_pointer (&data));
+}
+
+static void
+portal_add_local (GDBusMethodInvocation *invocation,
+                  const char *app_id)
+{
+  GVariant *parameters;
+  GDBusMessage *message;
+  GUnixFDList *fd_list;
+  g_autofree char *proc_path = NULL;
+  g_autofree char *uri = NULL;
+  int fd_id, fd, fds_len, fd_flags;
+  const int *fds;
+  char path_buffer[PATH_MAX+1];
+  g_autoptr(GFile) file = NULL;
+  ssize_t symlink_size;
+  struct stat st_buf, real_st_buf;
+  CreateDocData *data;
+
+  parameters = g_dbus_method_invocation_get_parameters (invocation);
+  g_variant_get (parameters, "(h)", &fd_id);
+
+  message = g_dbus_method_invocation_get_message (invocation);
+  fd_list = g_dbus_message_get_unix_fd_list (message);
+
+  fd = -1;
+  if (fd_list != NULL)
+    {
+      fds = g_unix_fd_list_peek_fds (fd_list, &fds_len);
+      if (fd_id < fds_len)
+        fd = fds[fd_id];
+    }
+
+  proc_path = g_strdup_printf ("/proc/self/fd/%d", fd);
+
+  if (fd == -1 ||
+      /* Must be able to fstat */
+      fstat (fd, &st_buf) < 0 ||
+      /* Must be a regular file */
+      (st_buf.st_mode & S_IFMT) != S_IFREG ||
+      /* Must be able to get fd flags */
+      (fd_flags = fcntl (fd, F_GETFL)) == -1 ||
+      /* Must be able to read */
+      (fd_flags & O_ACCMODE) != O_WRONLY ||
+      /* Must be able to read path from /proc/self/fd */
+      (symlink_size = readlink (proc_path, path_buffer, sizeof (path_buffer) - 1)) < 0)
+    {
+      g_dbus_method_invocation_return_error (invocation,
+                                             XDP_ERROR, XDP_ERROR_FAILED,
+                                             "Invalid fd passed");
+      return;
+    }
+
+  path_buffer[symlink_size] = 0;
+
+  if (lstat (path_buffer, &real_st_buf) < 0 ||
+      st_buf.st_dev != real_st_buf.st_dev ||
+      st_buf.st_ino != real_st_buf.st_ino)
+    {
+      /* Don't leak any info about real file path existance, etc */
+      g_dbus_method_invocation_return_error (invocation,
+                                             XDP_ERROR, XDP_ERROR_FAILED,
+                                             "No such file");
+      return;
+    }
+
+  file = g_file_new_for_path (path_buffer);
+  uri = g_file_get_uri (file);
+
+  data = create_doc_data_new (invocation, app_id);
+
+  if (app_id[0] != '\0')
+    {
+      /* also grant app-id perms based on file_mode */
+      data->perms = XDP_PERMISSION_FLAGS_GRANT_PERMISSIONS | XDP_PERMISSION_FLAGS_READ;
+      if ((fd_flags & O_ACCMODE) == O_RDWR)
+        data->perms |= XDP_PERMISSION_FLAGS_WRITE;
+    }
+
+  xdp_document_for_uri (repository, uri , NULL, got_document_for_uri_cb, data);
 }
 
 static void
@@ -210,6 +356,7 @@ portal_new (GDBusMethodInvocation *invocation,
   const char *uri;
   const char *title;
   g_autoptr (XdpDocument) doc = NULL;
+  CreateDocData *data;
 
   if (app_id[0] != '\0')
     {
@@ -232,7 +379,9 @@ portal_new (GDBusMethodInvocation *invocation,
       return;
     }
 
-  xdp_document_for_uri_and_title (repository, uri, title, NULL, got_document_for_uri_cb, g_object_ref (invocation));
+  data = create_doc_data_new (invocation, app_id);
+
+  xdp_document_for_uri_and_title (repository, uri, title, NULL, got_document_for_uri_cb, data);
 }
 
 typedef void (*PortalMethod) (GDBusMethodInvocation *invocation,
@@ -268,6 +417,17 @@ handle_add_method (XdpDbusDocumentPortal *portal,
 }
 
 static gboolean
+handle_add_local_method (XdpDbusDocumentPortal *portal,
+                         GDBusMethodInvocation *invocation,
+                         const char            *uri,
+                         gpointer               callback)
+{
+  xdp_invocation_lookup_app_id (invocation, NULL, got_app_id_cb, portal_add_local);
+
+  return TRUE;
+}
+
+static gboolean
 handle_new_method (XdpDbusDocumentPortal *portal,
                    GDBusMethodInvocation *invocation,
                    const char            *base_uri,
@@ -291,6 +451,7 @@ on_bus_acquired (GDBusConnection *connection,
   helper = xdp_dbus_document_portal_skeleton_new ();
 
   g_signal_connect (helper, "handle-add", G_CALLBACK (handle_add_method), NULL);
+  g_signal_connect (helper, "handle-add-local", G_CALLBACK (handle_add_local_method), NULL);
   g_signal_connect (helper, "handle-new", G_CALLBACK (handle_new_method), NULL);
 
   xdp_connection_track_name_owners (connection);

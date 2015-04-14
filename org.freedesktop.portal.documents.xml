@@ -29,6 +29,10 @@
       <arg type='s' name='uri' direction='in'/>
       <arg type='x' name='handle' direction='out'/>
     </method>
+    <method name="AddLocal">
+      <arg type='h' name='fd' direction='in'/>
+      <arg type='x' name='handle' direction='out'/>
+    </method>
     <method name="New">
       <arg type='s' name='base_uri' direction='in'/>
       <arg type='s' name='title' direction='in'/>

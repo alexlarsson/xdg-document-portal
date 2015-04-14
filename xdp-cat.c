@@ -41,7 +41,7 @@ do_cat (int argc, const char *argv[])
 {
   XdpDbusDocument *proxy;
   GDBusConnection *bus;
-  g_autoptr(GError) error;
+  g_autoptr(GError) error = NULL;
   g_autoptr(GVariant) fd_v = NULL;
   GUnixFDList *fd_list = NULL;
   g_autofree char *path = NULL;

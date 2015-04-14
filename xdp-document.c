@@ -721,13 +721,6 @@ xdp_document_handle_grant_permissions (XdpDocument *doc,
 
   g_variant_get (parameters, "(&s^a&s)", &target_app_id, &permissions);
 
-  if (!xdp_document_has_permissions (doc, app_id, XDP_PERMISSION_FLAGS_GRANT_PERMISSIONS))
-    {
-      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
-                                             "No permissions to grant permissions");
-      return;
-    }
-
   perms = 0;
   for (i = 0; permissions[i]; i++)
     {
@@ -743,6 +736,14 @@ xdp_document_handle_grant_permissions (XdpDocument *doc,
                                                  "No such permission: %s", permissions[i]);
           return;
         }
+    }
+
+  /* Must have grant-permissions and all the newly granted permissions */
+  if (!xdp_document_has_permissions (doc, app_id, XDP_PERMISSION_FLAGS_GRANT_PERMISSIONS | perms))
+    {
+      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+                                             "Not enough permissions");
+      return;
     }
 
   xdp_document_grant_permissions (doc, target_app_id, perms, NULL, permissions_granted, g_object_ref (invocation));

@@ -20,8 +20,8 @@ struct _XdpDocument
   char *title;
 
   GList *permissions;
-
   GList *updates;
+  GList *removals;
 };
 
 typedef struct
@@ -30,6 +30,13 @@ typedef struct
   char *owner;
 } XdpDocumentUpdate;
 
+
+typedef struct
+{
+  XdpDocument *doc;
+  gint64 handle;
+  GList *tasks;
+} XdpPermissionsRemoval;
 
 G_DEFINE_TYPE(XdpDocument, xdp_document, GOM_TYPE_RESOURCE)
 
@@ -284,33 +291,43 @@ xdp_document_grant_permissions_finish (XdpDocument   *doc,
   return 0;
 }
 
-typedef struct {
-  GTask *task;
-  XdpDocument *doc;
-} DeletePermissionsData;
-
 static void
 permissions_deleted (GObject *source_object,
                      GAsyncResult *result,
-                     gpointer user_data)
+                     gpointer data)
 {
   GomResource *resource = GOM_RESOURCE (source_object);
   XdpPermissions *permissions = XDP_PERMISSIONS (source_object);
-  g_autofree DeletePermissionsData *data = user_data;
-  g_autoptr (GTask) task = data->task;
-  g_autoptr (XdpDocument) doc = data->doc;
+  XdpPermissionsRemoval *removal = data;
+  XdpDocument *doc = removal->doc;
   g_autoptr (GError) error = NULL;
+  GList *l;
 
   if (!gom_resource_delete_finish (resource, result, &error))
     {
-      g_task_return_error (task, error);
+      for (l = removal->tasks; l; l = l->next)
+        {
+          GTask *task = l->data;
+          g_task_return_new_error (task, XDP_ERROR, XDP_ERROR_FAILED, "Failed to remove permission: %s", error->message);
+        }
+      g_list_free_full (removal->tasks, g_object_unref);
+      doc->removals = g_list_remove (doc->removals, removal);
+      g_free (removal);
+
       return;
     }
 
   doc->permissions = g_list_remove (doc->permissions, permissions);
   g_object_unref (permissions);
 
-  g_task_return_boolean (task, TRUE);
+  for (l = removal->tasks; l; l = l->next)
+    {
+      GTask *task = l->data;
+      g_task_return_boolean (task, TRUE);
+    }
+  g_list_free_full (removal->tasks, g_object_unref);
+  doc->removals = g_list_remove (doc->removals, removal);
+  g_free (removal);
 }
 
 void
@@ -323,8 +340,20 @@ xdp_document_revoke_permissions (XdpDocument *doc,
   XdpPermissions *permissions = NULL;
   g_autoptr (GTask) task = NULL;
   GList *l;
+  XdpPermissionsRemoval *removal;
 
   task = g_task_new (doc, cancellable, callback, user_data);
+
+  for (l = doc->removals; l; l = l->next)
+    {
+      removal = l->data;
+
+      if (removal->handle == handle)
+        {
+          removal->tasks = g_list_prepend (removal->tasks, g_object_ref (task));
+          return;
+        }
+    }
 
   for (l = doc->permissions; l; l = l->next)
     {
@@ -332,13 +361,15 @@ xdp_document_revoke_permissions (XdpDocument *doc,
 
       if (xdp_permissions_get_id (permissions) == handle)
         {
-          DeletePermissionsData *data;
 
-          data = g_new (DeletePermissionsData, 1);
-          data->task = g_object_ref (task);
-          data->doc = g_object_ref (doc);
+          removal = g_new0 (XdpPermissionsRemoval, 1);
+          removal->handle = handle;
+          removal->tasks = g_list_prepend (removal->tasks, g_object_ref (task));
+          removal->doc = doc;
 
-          gom_resource_delete_async (GOM_RESOURCE (permissions), permissions_deleted, data);
+          doc->removals = g_list_prepend (doc->removals, removal);
+
+          gom_resource_delete_async (GOM_RESOURCE (permissions), permissions_deleted, removal);
           return;
         }
     }

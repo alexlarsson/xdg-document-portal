@@ -384,6 +384,46 @@ portal_new (GDBusMethodInvocation *invocation,
   xdp_document_for_uri_and_title (repository, uri, title, NULL, got_document_for_uri_cb, data);
 }
 
+static void
+document_removed (GObject *source,
+                  GAsyncResult *result,
+                  gpointer data)
+{
+  GomRepository *repository = GOM_REPOSITORY (source);
+  GDBusMethodInvocation *invocation = data;
+  g_autoptr (GError) error = NULL;
+
+  if (!xdp_document_remove_finish (repository, result, &error))
+    g_dbus_method_invocation_return_error (invocation,
+                                           XDP_ERROR, XDP_ERROR_FAILED,
+                                           "%s", error->message);
+  else
+    g_dbus_method_invocation_return_value (invocation, g_variant_new ("()"));
+}
+
+static void
+portal_remove (GDBusMethodInvocation *invocation,
+               const char *app_id)
+{
+  GVariant *parameters;
+  gint64 handle;
+
+  if (app_id[0] != '\0')
+    {
+      /* don't allow this from within the sandbox for now */
+      g_dbus_method_invocation_return_error (invocation,
+                                             XDP_ERROR, XDP_ERROR_FAILED,
+                                             "Not allowed inside sandbox");
+      return;
+    }
+
+  parameters = g_dbus_method_invocation_get_parameters (invocation);
+  g_variant_get (parameters, "(x)", &handle);
+
+  xdp_document_remove (repository, handle, NULL, document_removed, invocation);
+}
+
+
 typedef void (*PortalMethod) (GDBusMethodInvocation *invocation,
                               const char *app_id);
 
@@ -439,6 +479,18 @@ handle_new_method (XdpDbusDocumentPortal *portal,
   return TRUE;
 }
 
+static gboolean
+handle_remove_method (XdpDbusDocumentPortal *portal,
+                      GDBusMethodInvocation *invocation,
+                      const char            *base_uri,
+                      const char            *title,
+                      gpointer               callback)
+{
+  xdp_invocation_lookup_app_id (invocation, NULL, got_app_id_cb, portal_remove);
+
+  return TRUE;
+}
+
 static void
 on_bus_acquired (GDBusConnection *connection,
                  const gchar     *name,
@@ -453,6 +505,7 @@ on_bus_acquired (GDBusConnection *connection,
   g_signal_connect (helper, "handle-add", G_CALLBACK (handle_add_method), NULL);
   g_signal_connect (helper, "handle-add-local", G_CALLBACK (handle_add_local_method), NULL);
   g_signal_connect (helper, "handle-new", G_CALLBACK (handle_new_method), NULL);
+  g_signal_connect (helper, "handle-remove", G_CALLBACK (handle_remove_method), NULL);
 
   xdp_connection_track_name_owners (connection);
 

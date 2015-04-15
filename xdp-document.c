@@ -990,11 +990,12 @@ xdp_document_handle_delete (XdpDocument *doc,
   g_autoptr (GomResourceGroup) group = NULL;
   GList *l;
 
-  if (doc->updates != NULL)
+  /* This is always at least 1 (for the delete op) */
+  if (doc->outstanding_operations > 1)
     {
       g_dbus_method_invocation_return_error (invocation,
                                              XDP_ERROR, XDP_ERROR_FAILED,
-                                             "Document has active updates");
+                                             "Document has active operations");
       return;
     }
 

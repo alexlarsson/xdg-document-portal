@@ -110,7 +110,7 @@ xdp_invocation_lookup_app_id (GDBusMethodInvocation *invocation,
 {
   GDBusConnection *connection = g_dbus_method_invocation_get_connection (invocation);
   const gchar *sender = g_dbus_method_invocation_get_sender (invocation);
-  GTask *task;
+  g_autoptr(GTask) task = NULL;
   AppIdInfo *info;
 
   task = g_task_new (invocation, cancellable, callback, user_data);
@@ -147,7 +147,7 @@ xdp_invocation_lookup_app_id (GDBusMethodInvocation *invocation,
                                                      info);
         }
 
-      info->pending = g_list_prepend (info->pending, task);
+      info->pending = g_list_prepend (info->pending, g_object_ref (task));
     }
 }
 

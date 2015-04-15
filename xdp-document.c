@@ -920,6 +920,38 @@ xdp_document_handle_get_info (XdpDocument *doc,
                            data);
 }
 
+static void
+document_deleted (GObject *object,
+                  GAsyncResult *result,
+                  gpointer data)
+{
+  GomResourceGroup *group = GOM_RESOURCE_GROUP (object);
+
+  gom_resource_group_delete_finish (group, result, NULL);
+}
+
+static void
+xdp_document_handle_delete (XdpDocument *doc,
+                            GDBusMethodInvocation *invocation,
+                            const char *app_id,
+                            GVariant *parameters)
+{
+  g_autoptr (GomRepository) repository = NULL;
+  g_autoptr (GomResourceGroup) group = NULL;
+  GList *l;
+
+  g_object_get (doc, "repository", &repository, NULL);
+  group = gom_resource_group_new (repository);
+  gom_resource_group_append (group, GOM_RESOURCE (doc));
+  for (l = doc->permissions; l; l = l->next)
+    gom_resource_group_append (group, GOM_RESOURCE (l->data));
+
+  gom_resource_group_delete_async (group, document_deleted, NULL);
+  g_hash_table_remove (documents, &doc->id);
+
+  g_dbus_method_invocation_return_value (invocation, g_variant_new ("()"));
+}
+
 struct {
   const char *name;
   const char *args;
@@ -933,7 +965,8 @@ struct {
   { "FinishUpdate", "(u)", xdp_document_handle_finish_update},
   { "GrantPermissions", "(sas)", xdp_document_handle_grant_permissions},
   { "RevokePermissions", "(x)", xdp_document_handle_revoke_permissions},
-  { "GetInfo", "(as)", xdp_document_handle_get_info}
+  { "GetInfo", "(as)", xdp_document_handle_get_info},
+  { "Delete", "()", xdp_document_handle_delete}
 };
 
 void

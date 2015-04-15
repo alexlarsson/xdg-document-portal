@@ -61,7 +61,7 @@ do_cat (int argc, const char *argv[])
 
   if (argc != 1)
     {
-      g_printerr ("Usage: xdp add ID\n");
+      g_printerr ("Usage: xdp cat ID\n");
       return 1;
     }
 

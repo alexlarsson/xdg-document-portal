@@ -22,7 +22,7 @@ do_add (int argc, char *argv[])
 
   if (argc < 1)
     {
-      g_printerr ("Usage: xdp add FILE [APPID]");
+      g_printerr ("Usage: xdp add FILE [APPID]\n");
       return 1;
     }
 

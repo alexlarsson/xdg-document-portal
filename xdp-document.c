@@ -21,6 +21,8 @@ struct _XdpDocument
 
   GList *permissions;
   GList *updates;
+
+  gboolean deleting;
 };
 
 typedef struct
@@ -929,8 +931,20 @@ document_deleted (GObject *object,
                   gpointer data)
 {
   GomResourceGroup *group = GOM_RESOURCE_GROUP (object);
+  GDBusMethodInvocation *invocation = data;
+  g_autoptr(XdpDocument) doc = g_object_get_data (G_OBJECT(invocation), "doc");
+  g_autoptr(GError) error = NULL;
 
-  gom_resource_group_delete_finish (group, result, NULL);
+  if (!gom_resource_group_delete_finish (group, result, &error))
+    {
+      doc->deleting = FALSE;
+      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+                                             "Unable to delete document: %s", error->message);
+      return;
+    }
+
+  g_dbus_method_invocation_return_value (invocation, g_variant_new ("()"));
+  g_hash_table_remove (documents, &doc->id);
 }
 
 static void
@@ -957,10 +971,10 @@ xdp_document_handle_delete (XdpDocument *doc,
   for (l = doc->permissions; l; l = l->next)
     gom_resource_group_append (group, GOM_RESOURCE (l->data));
 
-  gom_resource_group_delete_async (group, document_deleted, NULL);
-  g_hash_table_remove (documents, &doc->id);
+  g_object_set_data (G_OBJECT (invocation), "doc", g_object_ref (doc));
 
-  g_dbus_method_invocation_return_value (invocation, g_variant_new ("()"));
+  gom_resource_group_delete_async (group, document_deleted, invocation);
+  doc->deleting = TRUE;
 }
 
 struct {
@@ -1221,7 +1235,9 @@ xdp_document_load (GomRepository      *repository,
 
   doc = g_hash_table_lookup (documents, &id);
 
-  if (doc)
+  if (doc && doc->deleting)
+    g_task_return_new_error (task, XDP_ERROR, XDP_ERROR_FAILED, "Document being deleted");
+  else if (doc)
     g_task_return_pointer (task, g_object_ref (doc), g_object_unref);
   else
     {
@@ -1327,8 +1343,11 @@ xdp_document_for_uri (GomRepository      *repository,
   g_autoptr (GTask) task = NULL;
   GHashTableIter iter;
   DocumentAdd *add;
+  gboolean is_deleting;
 
   ensure_documents ();
+
+  is_deleting = FALSE;
 
   task = g_task_new (repository, cancellable, callback, user_data);
 
@@ -1337,8 +1356,14 @@ xdp_document_for_uri (GomRepository      *repository,
     {
       if (strcmp (uri, doc->uri) == 0 && doc->title == NULL)
         {
-          g_task_return_pointer (task, g_object_ref (doc), g_object_unref);
-          return;
+          /* Don't return documents we're currently deleting */
+          if (doc->deleting)
+            is_deleting = TRUE;
+          else
+            {
+              g_task_return_pointer (task, g_object_ref (doc), g_object_unref);
+              return;
+            }
         }
     }
 
@@ -1356,14 +1381,24 @@ xdp_document_for_uri (GomRepository      *repository,
 
       g_hash_table_insert (adds, add->uri, add);
 
-      g_value_init (&value, G_TYPE_STRING);
-      g_value_set_string (&value, uri);
-      filter_uri = gom_filter_new_eq (XDP_TYPE_DOCUMENT, "uri", &value);
-      filter_title = gom_filter_new_is_null (XDP_TYPE_DOCUMENT, "title");
-      filter = gom_filter_new_and (filter_uri, filter_title);
+      if (is_deleting)
+        {
+          /* We're deleting a document with this uri, don't look in
+             the db as it may find that one. */
+          doc = xdp_document_new (repository, add->uri);
+          gom_resource_save_async (GOM_RESOURCE (g_object_ref (doc)), document_saved, add);
+        }
+      else
+        {
+          g_value_init (&value, G_TYPE_STRING);
+          g_value_set_string (&value, uri);
+          filter_uri = gom_filter_new_eq (XDP_TYPE_DOCUMENT, "uri", &value);
+          filter_title = gom_filter_new_is_null (XDP_TYPE_DOCUMENT, "title");
+          filter = gom_filter_new_and (filter_uri, filter_title);
 
-      gom_repository_find_one_async (repository, XDP_TYPE_DOCUMENT,
-                                     filter, find_one_for_uri_cb, add);
+          gom_repository_find_one_async (repository, XDP_TYPE_DOCUMENT,
+                                         filter, find_one_for_uri_cb, add);
+        }
     }
   else
     add->pending = g_list_append (add->pending, g_object_ref (task));

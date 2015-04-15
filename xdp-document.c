@@ -288,6 +288,29 @@ xdp_document_grant_permissions_finish (XdpDocument   *doc,
   return 0;
 }
 
+static void
+permissions_deleted (GObject *source_object,
+                     GAsyncResult *result,
+                     gpointer data)
+{
+  g_autoptr(GTask) task = data;
+  g_autoptr(GError) error = NULL;
+
+  if (gom_resource_delete_finish (GOM_RESOURCE (source_object), result, &error))
+    g_task_return_boolean (task, TRUE);
+  else
+    {
+      /* Delete failed, ressurect permissions.
+         This is safe, as its ref:ed as the source object during the async call */
+      XdpPermissions *permissions = XDP_PERMISSIONS (g_object_ref (source_object));
+      XdpDocument *doc = XDP_DOCUMENT (g_task_get_source_object (task));
+
+      doc->permissions = g_list_prepend (doc->permissions, permissions);
+
+      g_task_return_new_error (task, XDP_ERROR, XDP_ERROR_FAILED, error->message);
+    }
+}
+
 void
 xdp_document_revoke_permissions (XdpDocument *doc,
                                  gint64 handle,
@@ -308,10 +331,11 @@ xdp_document_revoke_permissions (XdpDocument *doc,
       if (xdp_permissions_get_id (permissions) == handle)
         {
           doc->permissions = g_list_remove (doc->permissions, permissions);
-          g_object_unref (permissions);
 
-          gom_resource_delete_async (GOM_RESOURCE (permissions), NULL, NULL);
-          g_task_return_boolean (task, TRUE);
+          gom_resource_delete_async (GOM_RESOURCE (permissions), permissions_deleted, g_object_ref (task));
+
+          g_object_unref (permissions); /* Drop ref from list, still ref:ed by async op above though */
+
           return;
         }
     }

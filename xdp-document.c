@@ -940,6 +940,14 @@ xdp_document_handle_delete (XdpDocument *doc,
   g_autoptr (GomResourceGroup) group = NULL;
   GList *l;
 
+  if (doc->updates != NULL)
+    {
+      g_dbus_method_invocation_return_error (invocation,
+                                             XDP_ERROR, XDP_ERROR_FAILED,
+                                             "Document has active updates");
+      return;
+    }
+
   g_object_get (doc, "repository", &repository, NULL);
   group = gom_resource_group_new (repository);
   gom_resource_group_append (group, GOM_RESOURCE (doc));

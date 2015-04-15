@@ -64,6 +64,7 @@ xdp_document_finalize (GObject *object)
   XdpDocument *doc = (XdpDocument *)object;
 
   g_free (doc->uri);
+  g_free (doc->title);
 
   G_OBJECT_CLASS (xdp_document_parent_class)->finalize (object);
 }

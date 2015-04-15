@@ -66,6 +66,8 @@ xdp_document_finalize (GObject *object)
   g_free (doc->uri);
   g_free (doc->title);
 
+  g_list_free_full (doc->permissions, g_object_unref);
+
   G_OBJECT_CLASS (xdp_document_parent_class)->finalize (object);
 }
 

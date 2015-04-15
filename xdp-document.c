@@ -516,6 +516,9 @@ xdp_document_handle_prepare_update (XdpDocument *doc,
 
   doc->updates = g_list_append (doc->updates, update);
 
+  /* Count the prepared update as outstanding */
+  doc->outstanding_operations++;
+
   retval = g_variant_new ("(uh)", update->fd, fd_id);
   g_dbus_method_invocation_return_value_with_unix_fd_list (invocation, retval, fd_list);
 
@@ -595,6 +598,8 @@ xdp_document_handle_finish_update (XdpDocument *doc,
     }
 
   doc->updates = g_list_remove (doc->updates, update);
+
+  doc->outstanding_operations--;
 
   /* Here we replace the target file using a copy, this is to disconnect the final
      file from all modifications that the writing app could do to the original file

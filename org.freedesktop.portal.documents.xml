@@ -64,5 +64,7 @@
     <method name="RevokePermissions">
       <arg type='x' name='cookie' direction='in'/>
     </method>
+    <method name="Delete">
+    </method>
   </interface>
 </node>

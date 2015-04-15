@@ -21,7 +21,6 @@ struct _XdpDocument
 
   GList *permissions;
   GList *updates;
-  GList *removals;
 };
 
 typedef struct
@@ -30,13 +29,6 @@ typedef struct
   char *owner;
 } XdpDocumentUpdate;
 
-
-typedef struct
-{
-  XdpDocument *doc;
-  gint64 handle;
-  GList *tasks;
-} XdpPermissionsRemoval;
 
 G_DEFINE_TYPE(XdpDocument, xdp_document, GOM_TYPE_RESOURCE)
 
@@ -72,6 +64,9 @@ xdp_document_finalize (GObject *object)
   XdpDocument *doc = (XdpDocument *)object;
 
   g_free (doc->uri);
+  g_free (doc->title);
+
+  g_list_free_full (doc->permissions, g_object_unref);
 
   G_OBJECT_CLASS (xdp_document_parent_class)->finalize (object);
 }
@@ -291,45 +286,6 @@ xdp_document_grant_permissions_finish (XdpDocument   *doc,
   return 0;
 }
 
-static void
-permissions_deleted (GObject *source_object,
-                     GAsyncResult *result,
-                     gpointer data)
-{
-  GomResource *resource = GOM_RESOURCE (source_object);
-  XdpPermissions *permissions = XDP_PERMISSIONS (source_object);
-  XdpPermissionsRemoval *removal = data;
-  XdpDocument *doc = removal->doc;
-  g_autoptr (GError) error = NULL;
-  GList *l;
-
-  if (!gom_resource_delete_finish (resource, result, &error))
-    {
-      for (l = removal->tasks; l; l = l->next)
-        {
-          GTask *task = l->data;
-          g_task_return_new_error (task, XDP_ERROR, XDP_ERROR_FAILED, "Failed to remove permission: %s", error->message);
-        }
-      g_list_free_full (removal->tasks, g_object_unref);
-      doc->removals = g_list_remove (doc->removals, removal);
-      g_free (removal);
-
-      return;
-    }
-
-  doc->permissions = g_list_remove (doc->permissions, permissions);
-  g_object_unref (permissions);
-
-  for (l = removal->tasks; l; l = l->next)
-    {
-      GTask *task = l->data;
-      g_task_return_boolean (task, TRUE);
-    }
-  g_list_free_full (removal->tasks, g_object_unref);
-  doc->removals = g_list_remove (doc->removals, removal);
-  g_free (removal);
-}
-
 void
 xdp_document_revoke_permissions (XdpDocument *doc,
                                  gint64 handle,
@@ -340,20 +296,8 @@ xdp_document_revoke_permissions (XdpDocument *doc,
   XdpPermissions *permissions = NULL;
   g_autoptr (GTask) task = NULL;
   GList *l;
-  XdpPermissionsRemoval *removal;
 
   task = g_task_new (doc, cancellable, callback, user_data);
-
-  for (l = doc->removals; l; l = l->next)
-    {
-      removal = l->data;
-
-      if (removal->handle == handle)
-        {
-          removal->tasks = g_list_prepend (removal->tasks, g_object_ref (task));
-          return;
-        }
-    }
 
   for (l = doc->permissions; l; l = l->next)
     {
@@ -361,15 +305,11 @@ xdp_document_revoke_permissions (XdpDocument *doc,
 
       if (xdp_permissions_get_id (permissions) == handle)
         {
+          doc->permissions = g_list_remove (doc->permissions, permissions);
+          g_object_unref (permissions);
 
-          removal = g_new0 (XdpPermissionsRemoval, 1);
-          removal->handle = handle;
-          removal->tasks = g_list_prepend (removal->tasks, g_object_ref (task));
-          removal->doc = doc;
-
-          doc->removals = g_list_prepend (doc->removals, removal);
-
-          gom_resource_delete_async (GOM_RESOURCE (permissions), permissions_deleted, removal);
+          gom_resource_delete_async (GOM_RESOURCE (permissions), NULL, NULL);
+          g_task_return_boolean (task, TRUE);
           return;
         }
     }
@@ -983,6 +923,46 @@ xdp_document_handle_get_info (XdpDocument *doc,
                            data);
 }
 
+static void
+document_deleted (GObject *object,
+                  GAsyncResult *result,
+                  gpointer data)
+{
+  GomResourceGroup *group = GOM_RESOURCE_GROUP (object);
+
+  gom_resource_group_delete_finish (group, result, NULL);
+}
+
+static void
+xdp_document_handle_delete (XdpDocument *doc,
+                            GDBusMethodInvocation *invocation,
+                            const char *app_id,
+                            GVariant *parameters)
+{
+  g_autoptr (GomRepository) repository = NULL;
+  g_autoptr (GomResourceGroup) group = NULL;
+  GList *l;
+
+  if (doc->updates != NULL)
+    {
+      g_dbus_method_invocation_return_error (invocation,
+                                             XDP_ERROR, XDP_ERROR_FAILED,
+                                             "Document has active updates");
+      return;
+    }
+
+  g_object_get (doc, "repository", &repository, NULL);
+  group = gom_resource_group_new (repository);
+  gom_resource_group_append (group, GOM_RESOURCE (doc));
+  for (l = doc->permissions; l; l = l->next)
+    gom_resource_group_append (group, GOM_RESOURCE (l->data));
+
+  gom_resource_group_delete_async (group, document_deleted, NULL);
+  g_hash_table_remove (documents, &doc->id);
+
+  g_dbus_method_invocation_return_value (invocation, g_variant_new ("()"));
+}
+
 struct {
   const char *name;
   const char *args;
@@ -996,7 +976,8 @@ struct {
   { "FinishUpdate", "(u)", xdp_document_handle_finish_update},
   { "GrantPermissions", "(sas)", xdp_document_handle_grant_permissions},
   { "RevokePermissions", "(x)", xdp_document_handle_revoke_permissions},
-  { "GetInfo", "(as)", xdp_document_handle_get_info}
+  { "GetInfo", "(as)", xdp_document_handle_get_info},
+  { "Delete", "()", xdp_document_handle_delete}
 };
 
 void

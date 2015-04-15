@@ -23,6 +23,10 @@ struct _XdpDocument
   GList *updates;
 
   gboolean deleting;
+
+  /* This means there is a dbus operation in progress on the document,
+     and it is not safe to e.g. purge it from the hash table atm. */
+  int outstanding_operations;
 };
 
 typedef struct
@@ -1018,6 +1022,13 @@ struct {
   { "Delete", "()", xdp_document_handle_delete}
 };
 
+static void
+handle_document_call_done (XdpDocument *doc)
+{
+  doc->outstanding_operations--;
+  g_object_unref (doc);
+}
+
 void
 xdp_document_handle_call (XdpDocument *doc,
                           GDBusMethodInvocation *invocation,
@@ -1043,6 +1054,8 @@ xdp_document_handle_call (XdpDocument *doc,
                 }
               else
                 {
+                  doc->outstanding_operations++;
+                  g_object_set_data_full (G_OBJECT (invocation), "document", g_object_ref (doc), (GDestroyNotify)handle_document_call_done);
                   (doc_methods[i].callback) (doc, invocation, app_id, parameters);
                 }
               break;

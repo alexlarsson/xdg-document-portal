@@ -48,7 +48,7 @@ got_document_cb (GObject *source_object,
 {
   g_autoptr(GError) error = NULL;
   g_autoptr(XdpDocument) doc = NULL;
-  g_autoptr(GDBusMethodInvocation) invocation = user_data;
+  GDBusMethodInvocation *invocation = user_data;
 
   doc = xdg_document_load_finish (repository, res, &error);
 
@@ -80,7 +80,7 @@ document_method_call (GDBusConnection       *connection,
 
   g_free (user_data);
 
-  xdp_document_load (repository, id, NULL, got_document_cb, g_object_ref (invocation));
+  xdp_document_load (repository, id, NULL, got_document_cb, invocation);
 }
 
 const GDBusInterfaceVTable document_vtable =

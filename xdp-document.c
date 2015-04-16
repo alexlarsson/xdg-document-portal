@@ -18,6 +18,7 @@ struct _XdpDocument
   gint64 id;
   char *uri;
   char *title;
+  gboolean transient;
 
   GList *permissions;
   GList *updates;
@@ -43,6 +44,7 @@ enum {
   PROP_ID,
   PROP_URI,
   PROP_TITLE,
+  PROP_TRANSIENT,
   LAST_PROP
 };
 
@@ -51,6 +53,8 @@ static GParamSpec *gParamSpecs [LAST_PROP];
 static GHashTable *documents;
 static GHashTable *loads;
 static GHashTable *adds;
+
+static gint64 transients = G_MAXINT64;
 
 typedef struct {
   gint64 id;
@@ -61,6 +65,7 @@ typedef struct {
 typedef struct
 {
   gchar *uri;
+  gboolean transient;
   GList *pending;
 } DocumentAdd;
 
@@ -99,6 +104,10 @@ xdp_document_get_property (GObject    *object,
       g_value_set_string (value, doc->title);
       break;
 
+    case PROP_TRANSIENT:
+      g_value_set_boolean (value, doc->transient);
+      break;
+
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -126,6 +135,10 @@ xdp_document_set_property (GObject      *object,
     case PROP_TITLE:
       g_free (doc->title);
       doc->title = g_value_dup_string (value);
+      break;
+
+    case PROP_TRANSIENT:
+      doc->transient = g_value_get_boolean (value);
       break;
 
     default:
@@ -168,6 +181,13 @@ xdp_document_class_init (XdpDocumentClass *klass)
                                                 NULL, G_PARAM_READWRITE);
   g_object_class_install_property (object_class, PROP_TITLE,
                                    gParamSpecs[PROP_TITLE]);
+
+  gParamSpecs[PROP_TRANSIENT] = g_param_spec_boolean("transient", "Transient",
+                                                "Transient",
+                                                FALSE, G_PARAM_READWRITE);
+  g_object_class_install_property (object_class, PROP_TRANSIENT,
+                                   gParamSpecs[PROP_TRANSIENT]);
+  gom_resource_class_set_property_set_mapped (resource_class, "transient", FALSE);
 }
 
 static void
@@ -177,23 +197,29 @@ xdp_document_init (XdpDocument *self)
 
 XdpDocument *
 xdp_document_new (GomRepository *repo,
-                  const char *uri)
+                  const char *uri,
+                  gboolean transient)
 {
   return g_object_new (XDP_TYPE_DOCUMENT,
                        "repository", repo,
                        "uri", uri,
+                       "transient", transient,
+                       "id", transient ? transients-- : 0,
                        NULL);
 }
 
 XdpDocument *
 xdp_document_new_with_title (GomRepository *repo,
                              const char *base_uri,
-                             const char *title)
+                             const char *title,
+                             gboolean transient)
 {
   return g_object_new (XDP_TYPE_DOCUMENT,
                        "repository", repo,
                        "uri", base_uri,
                        "title", title,
+                       "transient", transient,
+                       "id", transient ? transients-- : 0,
                        NULL);
 }
 
@@ -255,6 +281,7 @@ void
 xdp_document_grant_permissions (XdpDocument        *doc,
                                 const char         *app_id,
                                 XdpPermissionFlags  perms,
+                                gboolean            transient,
                                 GCancellable       *cancellable,
                                 GAsyncReadyCallback callback,
                                 gpointer            user_data)
@@ -268,13 +295,21 @@ xdp_document_grant_permissions (XdpDocument        *doc,
 
   g_object_get (doc, "repository", &repository, NULL);
 
-  permissions = xdp_permissions_new (repository, doc, app_id, perms, FALSE);
+  permissions = xdp_permissions_new (repository, doc, app_id, perms, transient);
 
-  data = g_new (SavePermissionsData, 1);
-  data->task = g_object_ref (task);
-  data->doc = g_object_ref (doc);
+  if (transient)
+    {
+      doc->permissions = g_list_prepend (doc->permissions, permissions);
+      g_task_return_pointer (task, g_object_ref (permissions), g_object_unref);
+    }
+  else
+    {
+      data = g_new (SavePermissionsData, 1);
+      data->task = g_object_ref (task);
+      data->doc = g_object_ref (doc);
 
-  gom_resource_save_async (GOM_RESOURCE (permissions), permissions_saved, data);
+      gom_resource_save_async (GOM_RESOURCE (permissions), permissions_saved, data);
+    }
 }
 
 gint64
@@ -724,8 +759,9 @@ xdp_document_handle_grant_permissions (XdpDocument *doc,
   char **permissions;
   XdpPermissionFlags perms;
   gint i;
+  gboolean transient;
 
-  g_variant_get (parameters, "(&s^a&s)", &target_app_id, &permissions);
+  g_variant_get (parameters, "(&s^a&sb)", &target_app_id, &permissions, &transient);
 
   perms = 0;
   for (i = 0; permissions[i]; i++)
@@ -752,7 +788,10 @@ xdp_document_handle_grant_permissions (XdpDocument *doc,
       return;
     }
 
-  xdp_document_grant_permissions (doc, target_app_id, perms, NULL, permissions_granted, g_object_ref (invocation));
+  if (doc->transient)
+    transient = TRUE;
+
+  xdp_document_grant_permissions (doc, target_app_id, perms, transient, NULL, permissions_granted, g_object_ref (invocation));
 }
 
 static void
@@ -1022,7 +1061,7 @@ struct {
   { "Read", "()", xdp_document_handle_read},
   { "PrepareUpdate", "(sas)", xdp_document_handle_prepare_update},
   { "FinishUpdate", "(u)", xdp_document_handle_finish_update},
-  { "GrantPermissions", "(sas)", xdp_document_handle_grant_permissions},
+  { "GrantPermissions", "(sasb)", xdp_document_handle_grant_permissions},
   { "RevokePermissions", "(x)", xdp_document_handle_revoke_permissions},
   { "GetInfo", "(as)", xdp_document_handle_get_info},
   { "Delete", "()", xdp_document_handle_delete}
@@ -1365,8 +1404,14 @@ find_one_for_uri_cb (GObject *source_object,
       if (g_error_matches (error, GOM_ERROR, GOM_ERROR_REPOSITORY_EMPTY_RESULT))
         {
           g_clear_error (&error);
-          doc = xdp_document_new (repository, add->uri);
-          gom_resource_save_async (GOM_RESOURCE (g_object_ref (doc)), document_saved, add);
+          doc = xdp_document_new (repository, add->uri, add->transient);
+          if (add->transient)
+            {
+              g_hash_table_insert (documents, &doc->id, g_object_ref (doc));
+              document_add_complete (add, doc);
+            }
+          else
+            gom_resource_save_async (GOM_RESOURCE (g_object_ref (doc)), document_saved, add);
         }
       else
         document_add_abort (add, error);
@@ -1378,6 +1423,7 @@ find_one_for_uri_cb (GObject *source_object,
 void
 xdp_document_for_uri (GomRepository      *repository,
                       const char         *uri,
+                      gboolean            transient,
                       GCancellable       *cancellable,
                       GAsyncReadyCallback callback,
                       gpointer            user_data)
@@ -1420,6 +1466,7 @@ xdp_document_for_uri (GomRepository      *repository,
 
       add = g_new0 (DocumentAdd, 1);
       add->uri = g_strdup (uri);
+      add->transient = transient;
       add->pending = g_list_append (add->pending, g_object_ref (task));
 
       g_hash_table_insert (adds, add->uri, add);
@@ -1428,8 +1475,14 @@ xdp_document_for_uri (GomRepository      *repository,
         {
           /* We're deleting a document with this uri, don't look in
              the db as it may find that one. */
-          doc = xdp_document_new (repository, add->uri);
-          gom_resource_save_async (GOM_RESOURCE (g_object_ref (doc)), document_saved, add);
+          doc = xdp_document_new (repository, add->uri, add->transient);
+          if (add->transient)
+            {
+              g_hash_table_insert (documents, &doc->id, g_object_ref (doc));
+              document_add_complete (add, doc);
+            }
+          else
+            gom_resource_save_async (GOM_RESOURCE (g_object_ref (doc)), document_saved, add);
         }
       else
         {
@@ -1444,7 +1497,11 @@ xdp_document_for_uri (GomRepository      *repository,
         }
     }
   else
-    add->pending = g_list_append (add->pending, g_object_ref (task));
+    {
+      if (!transient)
+        add->transient = FALSE;
+      add->pending = g_list_append (add->pending, g_object_ref (task));
+    }
 }
 
 static void
@@ -1471,6 +1528,7 @@ void
 xdp_document_for_uri_and_title (GomRepository      *repository,
                                 const char         *uri,
                                 const char         *title,
+                                gboolean            transient,
                                 GCancellable       *cancellable,
                                 GAsyncReadyCallback callback,
                                 gpointer            user_data)
@@ -1482,8 +1540,14 @@ xdp_document_for_uri_and_title (GomRepository      *repository,
 
   task = g_task_new (repository, cancellable, callback, user_data);
 
-  doc = xdp_document_new_with_title (repository, uri, title);
-  gom_resource_save_async (GOM_RESOURCE (doc), document_with_title_saved, g_object_ref (task));
+  doc = xdp_document_new_with_title (repository, uri, title, transient);
+  if (transient)
+    {
+      g_hash_table_insert (documents, &doc->id, g_object_ref (doc));
+      g_task_return_pointer (task, g_object_ref (doc), g_object_unref);
+    }
+  else
+    gom_resource_save_async (GOM_RESOURCE (doc), document_with_title_saved, g_object_ref (task));
 }
 
 XdpDocument *

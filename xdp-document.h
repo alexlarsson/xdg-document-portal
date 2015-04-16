@@ -11,10 +11,12 @@ G_BEGIN_DECLS
 G_DECLARE_FINAL_TYPE(XdpDocument, xdp_document, XDP, DOCUMENT, GomResource);
 
 XdpDocument *xdp_document_new (GomRepository *repo,
-                               const char *uri);
+                               const char *uri,
+                               gboolean transient);
 XdpDocument *xdp_document_new_with_title (GomRepository *repo,
                                           const char *base_uri,
-                                          const char *title);
+                                          const char *title,
+                                          gboolean transient);
 
 gint64 xdp_document_get_id (XdpDocument *doc);
 
@@ -23,6 +25,7 @@ XdpPermissionFlags xdp_document_get_permissions (XdpDocument *doc,
 void xdp_document_grant_permissions (XdpDocument *doc,
                                      const char *app_id,
                                      XdpPermissionFlags perms,
+                                     gboolean transient,
                                      GCancellable       *cancellable,
                                      GAsyncReadyCallback callback,
                                      gpointer            user_data);
@@ -52,6 +55,7 @@ XdpDocument * xdg_document_load_finish (GomRepository *repository,
                                         GError         **error);
 void xdp_document_for_uri (GomRepository      *repository,
                            const char         *uri,
+                           gboolean            transient,
                            GCancellable       *cancellable,
                            GAsyncReadyCallback callback,
                            gpointer            user_data);
@@ -63,6 +67,7 @@ void
 xdp_document_for_uri_and_title (GomRepository      *repository,
                                 const char         *uri,
                                 const char         *title,
+                                gboolean            transient,
                                 GCancellable       *cancellable,
                                 GAsyncReadyCallback callback,
                                 gpointer            user_data);

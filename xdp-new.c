@@ -18,12 +18,20 @@ do_new (int argc, char **argv)
   GVariant *ret;
   g_autofree char *path = NULL;
   char *permissions[4] = { "read", "write", "grant-permissions", NULL };
+  gboolean transient = FALSE;
 
   setlocale (LC_ALL, "");
 
+  if (argc > 0 && g_strcmp0 (argv[0], "--transient") == 0)
+    {
+      transient = TRUE;
+      argv += 1;
+      argc -= 1;
+    }
+
   if (argc != 3)
     {
-      g_printerr ("Usage: xdp new URI TITLE APPID\n");
+      g_printerr ("Usage: xdp new [--transient] URI TITLE APPID\n");
       return 1;
     }
 
@@ -44,7 +52,7 @@ do_new (int argc, char **argv)
                                      "/org/freedesktop/portal/document",
                                      "org.freedesktop.portal.DocumentPortal",
                                      "New",
-                                     g_variant_new ("(ss)", uri, title),
+                                     g_variant_new ("(ssb)", uri, title, transient),
                                      G_VARIANT_TYPE ("(x)"),
                                      G_DBUS_CALL_FLAGS_NONE,
                                      30000,
@@ -69,7 +77,7 @@ do_new (int argc, char **argv)
                                      path,
                                      "org.freedesktop.portal.Document",
                                      "GrantPermissions",
-                                     g_variant_new ("(s^as)", appid, permissions),
+                                     g_variant_new ("(s^asb)", appid, permissions, transient),
                                      G_VARIANT_TYPE ("(x)"),
                                      G_DBUS_CALL_FLAGS_NONE,
                                      30000,

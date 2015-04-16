@@ -182,6 +182,8 @@ xdp_permissions_init (XdpPermissions *self)
 {
 }
 
+static gint64 transients = G_MAXINT64;
+
 XdpPermissions *
 xdp_permissions_new (GomRepository *repo,
                      XdpDocument *doc,
@@ -195,6 +197,7 @@ xdp_permissions_new (GomRepository *repo,
                        "document", xdp_document_get_id (doc),
                        "permissions", (guint)permissions,
                        "transient", transient,
+                       "id", transient ? transients-- : 0,
                        NULL);
 }
 

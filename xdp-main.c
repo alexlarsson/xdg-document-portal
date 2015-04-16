@@ -306,7 +306,7 @@ portal_add_local (GDBusMethodInvocation *invocation,
       /* Must be able to get fd flags */
       (fd_flags = fcntl (fd, F_GETFL)) == -1 ||
       /* Must be able to read */
-      (fd_flags & O_ACCMODE) != O_WRONLY ||
+      (fd_flags & O_ACCMODE) == O_WRONLY ||
       /* Must be able to read path from /proc/self/fd */
       (symlink_size = readlink (proc_path, path_buffer, sizeof (path_buffer) - 1)) < 0)
     {

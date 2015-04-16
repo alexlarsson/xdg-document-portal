@@ -56,6 +56,9 @@
     <method name="FinishUpdate">
       <arg type='u' name='id' direction='in'/>
     </method>
+    <method name="AbortUpdate">
+      <arg type='u' name='id' direction='in'/>
+    </method>
     <method name="GrantPermissions">
       <arg type='s' name='appid' direction='in'/>
       <arg type='as' name='permissions' direction='in'/>

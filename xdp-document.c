@@ -727,6 +727,50 @@ xdp_document_handle_finish_update (XdpDocument *doc,
 }
 
 static void
+xdp_document_handle_abort_update (XdpDocument *doc,
+				  GDBusMethodInvocation *invocation,
+				  const char *app_id,
+				  GVariant *parameters)
+{
+  guint32 id;
+  XdpDocumentUpdate *update = NULL;
+  GVariant *retval;
+  GList *l;
+
+  g_variant_get (parameters, "(u)", &id);
+
+  for (l = doc->updates; l != NULL; l = l->next)
+    {
+      XdpDocumentUpdate *l_update = l->data;
+
+      if (l_update->fd == id)
+        {
+          update = l_update;
+          break;
+        }
+    }
+
+  if (update == NULL ||
+      strcmp (update->owner, g_dbus_method_invocation_get_sender (invocation)) != 0)
+    {
+      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+                                             "No such update to finish");
+      goto out;
+    }
+
+  doc->updates = g_list_remove (doc->updates, update);
+
+  doc->outstanding_operations--;
+
+  retval = g_variant_new ("()");
+  g_dbus_method_invocation_return_value (invocation, retval);
+
+ out:
+  if (update)
+    document_update_free (update);
+}
+
+static void
 permissions_granted (GObject *source_object,
                      GAsyncResult *result,
                      gpointer data)
@@ -1051,6 +1095,7 @@ struct {
   { "Read", "()", xdp_document_handle_read},
   { "PrepareUpdate", "(sas)", xdp_document_handle_prepare_update},
   { "FinishUpdate", "(u)", xdp_document_handle_finish_update},
+  { "AbortUpdate", "(u)", xdp_document_handle_abort_update},
   { "GrantPermissions", "(sas)", xdp_document_handle_grant_permissions},
   { "RevokePermissions", "(s)", xdp_document_handle_revoke_permissions},
   { "GetInfo", "(as)", xdp_document_handle_get_info},

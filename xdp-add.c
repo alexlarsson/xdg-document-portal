@@ -17,12 +17,20 @@ do_add (int argc, char *argv[])
   GVariant *ret;
   g_autofree char *path = NULL;
   char *permissions[4] = { "read", "write", "grant-permissions", NULL };
+  gboolean transient = FALSE;
 
   setlocale (LC_ALL, "");
 
-  if (argc < 1)
+  if (argc> 0 && g_strcmp0 (argv[0], "--transient") == 0)
     {
-      g_printerr ("Usage: xdp add FILE [APPID]\n");
+      transient = TRUE;
+      argv += 1;
+      argc -= 1;
+    }
+
+  if (argc < 1 || argc > 2)
+    {
+      g_printerr ("Usage: xdp add [--transient] FILE [APPID]\n");
       return 1;
     }
 
@@ -43,7 +51,7 @@ do_add (int argc, char *argv[])
                                      "/org/freedesktop/portal/document",
                                      "org.freedesktop.portal.DocumentPortal",
                                      "Add",
-                                     g_variant_new ("(s)", uri),
+                                     g_variant_new ("(sb)", uri, transient),
                                      G_VARIANT_TYPE ("(x)"),
                                      G_DBUS_CALL_FLAGS_NONE,
                                      30000,
@@ -70,7 +78,7 @@ do_add (int argc, char *argv[])
                                          path,
                                          "org.freedesktop.portal.Document",
                                          "GrantPermissions",
-                                         g_variant_new ("(s^as)", appid, permissions),
+                                         g_variant_new ("(s^asb)", appid, permissions, transient),
                                          G_VARIANT_TYPE ("(x)"),
                                          G_DBUS_CALL_FLAGS_NONE,
                                          30000,

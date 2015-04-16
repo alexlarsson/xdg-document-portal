@@ -171,6 +171,7 @@ typedef struct {
   GDBusMethodInvocation *invocation;
   XdpDocument *doc;
   char *app_id;
+  gboolean transient;
   XdpPermissionFlags perms;
 } CreateDocData;
 
@@ -185,12 +186,14 @@ create_doc_data_free (CreateDocData *data)
 
 static CreateDocData *
 create_doc_data_new (GDBusMethodInvocation *invocation,
-                     const char *app_id)
+                     const char *app_id,
+                     gboolean transient)
 {
   CreateDocData *data = g_new0 (CreateDocData, 1);
 
   data->invocation = g_object_ref (invocation);
   data->app_id = g_strdup (app_id);
+  data->transient = transient;
 
   return data;
 }
@@ -236,6 +239,7 @@ got_document_for_uri_cb (GObject *source_object,
     xdp_document_grant_permissions (data->doc,
                                     data->app_id,
                                     data->perms,
+                                    data->transient,
                                     NULL,
                                     new_grant_permissions_cb, g_steal_pointer (&data));
   else
@@ -250,6 +254,8 @@ portal_add (GDBusMethodInvocation *invocation,
   GVariant *parameters;
   const char *uri;
   CreateDocData *data;
+  gboolean transient;
+  g_autoptr (GError) error = NULL;
 
   if (app_id[0] != '\0')
     {
@@ -261,11 +267,11 @@ portal_add (GDBusMethodInvocation *invocation,
     }
 
   parameters = g_dbus_method_invocation_get_parameters (invocation);
-  g_variant_get (parameters, "(&s)", &uri);
+  g_variant_get (parameters, "(&sb)", &uri, &transient);
 
-  data = create_doc_data_new (invocation, app_id);
+  data = create_doc_data_new (invocation, app_id, transient);
 
-  xdp_document_for_uri (repository, uri, NULL, got_document_for_uri_cb, g_steal_pointer (&data));
+  xdp_document_for_uri (repository, uri, transient, NULL, got_document_for_uri_cb, g_steal_pointer (&data));
 }
 
 static void
@@ -284,9 +290,11 @@ portal_add_local (GDBusMethodInvocation *invocation,
   ssize_t symlink_size;
   struct stat st_buf, real_st_buf;
   CreateDocData *data;
+  g_autoptr (GError) error = NULL;
+  gboolean transient;
 
   parameters = g_dbus_method_invocation_get_parameters (invocation);
-  g_variant_get (parameters, "(h)", &fd_id);
+  g_variant_get (parameters, "(hb)", &fd_id, &transient);
 
   message = g_dbus_method_invocation_get_message (invocation);
   fd_list = g_dbus_message_get_unix_fd_list (message);
@@ -335,7 +343,7 @@ portal_add_local (GDBusMethodInvocation *invocation,
   file = g_file_new_for_path (path_buffer);
   uri = g_file_get_uri (file);
 
-  data = create_doc_data_new (invocation, app_id);
+  data = create_doc_data_new (invocation, app_id, transient);
 
   if (app_id[0] != '\0')
     {
@@ -345,7 +353,7 @@ portal_add_local (GDBusMethodInvocation *invocation,
         data->perms |= XDP_PERMISSION_FLAGS_WRITE;
     }
 
-  xdp_document_for_uri (repository, uri , NULL, got_document_for_uri_cb, data);
+  xdp_document_for_uri (repository, uri, transient, NULL, got_document_for_uri_cb, data);
 }
 
 static void
@@ -357,6 +365,8 @@ portal_new (GDBusMethodInvocation *invocation,
   const char *title;
   g_autoptr (XdpDocument) doc = NULL;
   CreateDocData *data;
+  g_autoptr (GError) error = NULL;
+  gboolean transient;
 
   if (app_id[0] != '\0')
     {
@@ -368,7 +378,7 @@ portal_new (GDBusMethodInvocation *invocation,
     }
 
   parameters = g_dbus_method_invocation_get_parameters (invocation);
-  g_variant_get (parameters, "(&s&s)", &uri, &title);
+  g_variant_get (parameters, "(&s&sb)", &uri, &title, &transient);
 
   if (title == NULL || title[0] == '\0')
     {
@@ -379,9 +389,9 @@ portal_new (GDBusMethodInvocation *invocation,
       return;
     }
 
-  data = create_doc_data_new (invocation, app_id);
+  data = create_doc_data_new (invocation, app_id, transient);
 
-  xdp_document_for_uri_and_title (repository, uri, title, NULL, got_document_for_uri_cb, data);
+  xdp_document_for_uri_and_title (repository, uri, title, transient, NULL, got_document_for_uri_cb, data);
 }
 
 typedef void (*PortalMethod) (GDBusMethodInvocation *invocation,

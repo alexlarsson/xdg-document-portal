@@ -27,16 +27,16 @@
   <interface name='org.freedesktop.portal.DocumentPortal'>
     <method name="Add">
       <arg type='s' name='uri' direction='in'/>
-      <arg type='x' name='handle' direction='out'/>
+      <arg type='s' name='handle' direction='out'/>
     </method>
     <method name="AddLocal">
       <arg type='h' name='fd' direction='in'/>
-      <arg type='x' name='handle' direction='out'/>
+      <arg type='s' name='handle' direction='out'/>
     </method>
     <method name="New">
       <arg type='s' name='base_uri' direction='in'/>
       <arg type='s' name='title' direction='in'/>
-      <arg type='x' name='handle' direction='out'/>
+      <arg type='s' name='handle' direction='out'/>
     </method>
   </interface>
   <interface name='org.freedesktop.portal.Document'>
@@ -59,10 +59,10 @@
     <method name="GrantPermissions">
       <arg type='s' name='appid' direction='in'/>
       <arg type='as' name='permissions' direction='in'/>
-      <arg type='x' name='cookie' direction='out'/>
+      <arg type='s' name='cookie' direction='out'/>
     </method>
     <method name="RevokePermissions">
-      <arg type='x' name='cookie' direction='in'/>
+      <arg type='s' name='cookie' direction='in'/>
     </method>
     <method name="Delete">
     </method>

@@ -16,7 +16,8 @@ XdpDocument *xdp_document_new_with_title (GomRepository *repo,
                                           const char *base_uri,
                                           const char *title);
 
-gint64 xdp_document_get_id (XdpDocument *doc);
+gint64 xdp_document_get_id     (XdpDocument *doc);
+char * xdp_document_get_handle (XdpDocument *doc);
 
 XdpPermissionFlags xdp_document_get_permissions (XdpDocument *doc,
                                                  const char *app_id);
@@ -26,11 +27,11 @@ void xdp_document_grant_permissions (XdpDocument *doc,
                                      GCancellable       *cancellable,
                                      GAsyncReadyCallback callback,
                                      gpointer            user_data);
-gint64 xdp_document_grant_permissions_finish (XdpDocument  *doc,
-                                              GAsyncResult  *result,
-                                              GError       **error);
+char *xdp_document_grant_permissions_finish (XdpDocument  *doc,
+					     GAsyncResult  *result,
+					     GError       **error);
 void xdp_document_revoke_permissions (XdpDocument *doc,
-                                      gint64 handle,
+                                      char *handle,
                                       GCancellable *cancellable,
                                       GAsyncReadyCallback callback,
                                       gpointer user_data);
@@ -43,7 +44,7 @@ void xdp_document_handle_call (XdpDocument *doc,
                                const char *app_id);
 
 void xdp_document_load (GomRepository      *repository,
-                        gint64              id,
+                        const char         *handle,
                         GCancellable       *cancellable,
                         GAsyncReadyCallback callback,
                         gpointer            user_data);

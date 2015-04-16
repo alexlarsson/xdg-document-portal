@@ -203,6 +203,12 @@ xdp_document_get_id (XdpDocument *doc)
   return doc->id;
 }
 
+char *
+xdp_document_get_handle (XdpDocument *doc)
+{
+  return g_strdup_printf ("%" G_GINT64_FORMAT, doc->id);
+}
+
 XdpPermissionFlags
 xdp_document_get_permissions (XdpDocument *doc,
                               const char *app_id)
@@ -277,7 +283,7 @@ xdp_document_grant_permissions (XdpDocument        *doc,
   gom_resource_save_async (GOM_RESOURCE (permissions), permissions_saved, data);
 }
 
-gint64
+char *
 xdp_document_grant_permissions_finish (XdpDocument   *doc,
                                        GAsyncResult  *result,
                                        GError       **error)
@@ -287,9 +293,9 @@ xdp_document_grant_permissions_finish (XdpDocument   *doc,
   permissions = g_task_propagate_pointer (G_TASK (result), error);
 
   if (permissions)
-    return xdp_permissions_get_id (permissions);
+    return xdp_permissions_get_handle (permissions);
 
-  return 0;
+  return NULL;
 }
 
 static void
@@ -315,9 +321,23 @@ permissions_deleted (GObject *source_object,
     }
 }
 
+/* id == 0 does not exist */
+static gint64
+handle_to_id (const char *handle)
+{
+  gint64 id = 0;
+  char *end;
+
+  id = g_ascii_strtoll (handle, &end, 10);
+  if (*end != 0)
+    return 0;
+
+  return id;
+}
+
 void
 xdp_document_revoke_permissions (XdpDocument *doc,
-                                 gint64 handle,
+                                 char *handle,
                                  GCancellable *cancellable,
                                  GAsyncReadyCallback callback,
                                  gpointer user_data)
@@ -325,14 +345,22 @@ xdp_document_revoke_permissions (XdpDocument *doc,
   XdpPermissions *permissions = NULL;
   g_autoptr (GTask) task = NULL;
   GList *l;
+  gint64 id;
 
   task = g_task_new (doc, cancellable, callback, user_data);
 
+  id = handle_to_id (handle);
+  if (id == 0)
+    {
+      g_task_return_new_error (task, XDP_ERROR, XDP_ERROR_FAILED, "No such permissions");
+      return;
+    }
+  
   for (l = doc->permissions; l; l = l->next)
     {
       permissions = l->data;
 
-      if (xdp_permissions_get_id (permissions) == handle)
+      if (xdp_permissions_get_id (permissions) == id)
         {
           doc->permissions = g_list_remove (doc->permissions, permissions);
 
@@ -704,14 +732,14 @@ permissions_granted (GObject *source_object,
 {
   XdpDocument *doc = XDP_DOCUMENT (source_object);
   g_autoptr(GDBusMethodInvocation) invocation = data;
-  gint64 cookie;
+  g_autofree char *cookie = NULL;
   g_autoptr(GError) error = NULL;
 
   cookie = xdp_document_grant_permissions_finish (doc, result, &error);
   if (cookie == 0)
     g_dbus_method_invocation_return_gerror (invocation, error);
   else
-    g_dbus_method_invocation_return_value (invocation, g_variant_new ("(x)", cookie));
+    g_dbus_method_invocation_return_value (invocation, g_variant_new ("(s)", cookie));
 }
 
 static void
@@ -777,9 +805,9 @@ xdp_document_handle_revoke_permissions (XdpDocument *doc,
                                         const char *app_id,
                                         GVariant *parameters)
 {
-  gint64 handle;
+  char *handle;
 
-  g_variant_get (parameters, "(x)", &handle);
+  g_variant_get (parameters, "(&s)", &handle);
 
   if (!xdp_document_has_permissions (doc, app_id, XDP_PERMISSION_FLAGS_GRANT_PERMISSIONS))
     {
@@ -1023,7 +1051,7 @@ struct {
   { "PrepareUpdate", "(sas)", xdp_document_handle_prepare_update},
   { "FinishUpdate", "(u)", xdp_document_handle_finish_update},
   { "GrantPermissions", "(sas)", xdp_document_handle_grant_permissions},
-  { "RevokePermissions", "(x)", xdp_document_handle_revoke_permissions},
+  { "RevokePermissions", "(s)", xdp_document_handle_revoke_permissions},
   { "GetInfo", "(as)", xdp_document_handle_get_info},
   { "Delete", "()", xdp_document_handle_delete}
 };
@@ -1260,7 +1288,7 @@ find_one_doc_cb (GObject *source_object,
 
 void
 xdp_document_load (GomRepository      *repository,
-                   gint64              id,
+                   const char         *handle,
                    GCancellable       *cancellable,
                    GAsyncReadyCallback callback,
                    gpointer            user_data)
@@ -1268,6 +1296,7 @@ xdp_document_load (GomRepository      *repository,
   XdpDocument *doc;
   DocumentLoad *load;
   g_autoptr (GTask) task = NULL;
+  gint64 id = 0;
 
   ensure_documents ();
 
@@ -1276,6 +1305,13 @@ xdp_document_load (GomRepository      *repository,
                      callback,
                      user_data);
 
+  id = handle_to_id (handle);
+  if (id == 0)
+    {
+      g_task_return_new_error (task, XDP_ERROR, XDP_ERROR_FAILED, "No such document");
+      return;
+    }
+  
   doc = g_hash_table_lookup (documents, &id);
 
   if (doc && doc->deleting)
@@ -1357,7 +1393,8 @@ find_one_for_uri_cb (GObject *source_object,
   DocumentAdd *add = user_data;
   g_autoptr (XdpDocument) doc = NULL;
   g_autoptr (GError) error = NULL;
-
+  g_autofree char *handle = NULL;
+  
   doc = (XdpDocument *)gom_repository_find_one_finish (repository, res, &error);
 
   if (doc == NULL)
@@ -1372,7 +1409,10 @@ find_one_for_uri_cb (GObject *source_object,
         document_add_abort (add, error);
     }
   else
-    xdp_document_load (repository, doc->id, NULL, document_loaded, add);
+    {
+      handle = xdp_document_get_handle (doc);
+      xdp_document_load (repository, handle, NULL, document_loaded, add);
+    }
 }
 
 void

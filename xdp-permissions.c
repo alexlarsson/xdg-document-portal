@@ -204,6 +204,12 @@ xdp_permissions_get_id (XdpPermissions *permissions)
   return permissions->id;
 }
 
+char *
+xdp_permissions_get_handle (XdpPermissions *permissions)
+{
+  return g_strdup_printf ("%" G_GINT64_FORMAT, permissions->id);
+}
+
 const char *
 xdp_permissions_get_app_id (XdpPermissions *permissions)
 {

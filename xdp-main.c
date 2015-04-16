@@ -76,11 +76,10 @@ document_method_call (GDBusConnection       *connection,
                       GDBusMethodInvocation *invocation,
                       gpointer               user_data)
 {
-  gint64 id = *(gint64*)user_data;
+  char *handle = user_data;
 
-  g_free (user_data);
-
-  xdp_document_load (repository, id, NULL, got_document_cb, invocation);
+  xdp_document_load (repository, handle, NULL, got_document_cb, invocation);
+  g_free (handle);
 }
 
 const GDBusInterfaceVTable document_vtable =
@@ -115,19 +114,13 @@ subtree_introspect (GDBusConnection       *connection,
                     gpointer               user_data)
 {
   GPtrArray *p;
-  char *end;
-  gint64 id;
 
   if (node != NULL)
     {
-      id = g_ascii_strtoll (node, &end, 10);
-      if (id != 0 && *end == 0)
-        {
-          p = g_ptr_array_new ();
-          g_ptr_array_add (p, g_dbus_interface_info_ref (xdp_dbus_document_interface_info ()));
-          g_ptr_array_add (p, NULL);
-          return (GDBusInterfaceInfo **) g_ptr_array_free (p, FALSE);
-        }
+      p = g_ptr_array_new ();
+      g_ptr_array_add (p, g_dbus_interface_info_ref (xdp_dbus_document_interface_info ()));
+      g_ptr_array_add (p, NULL);
+      return (GDBusInterfaceInfo **) g_ptr_array_free (p, FALSE);
     }
 
   return NULL;
@@ -143,16 +136,13 @@ subtree_dispatch (GDBusConnection             *connection,
                   gpointer                     user_data)
 {
   const GDBusInterfaceVTable *vtable_to_return = NULL;
-  char *end;
-  gint64 id;
   gpointer user_data_to_return = NULL;
 
   if (node != NULL &&
-      (id = g_ascii_strtoll (node, &end, 10)) != 0 &&
-      *end == 0 &&
+      strlen (node) > 0 &&
       g_strcmp0 (interface_name, "org.freedesktop.portal.Document") == 0)
     {
-      user_data_to_return = g_memdup (&id, sizeof (gint64));
+      user_data_to_return = g_strdup (node);
       vtable_to_return = &document_vtable;
     }
 
@@ -204,7 +194,7 @@ new_grant_permissions_cb (GObject *source_object,
 {
   g_autoptr(CreateDocData) data = _data;
   g_autoptr(GError) error = NULL;
-  gint64 permissions_handle;
+  g_autofree char *permissions_handle = NULL;
 
   permissions_handle = xdp_document_grant_permissions_finish (data->doc, result, &error);
   if (permissions_handle == 0)
@@ -215,8 +205,10 @@ new_grant_permissions_cb (GObject *source_object,
       /* TODO: Clean up document */
     }
   else
-    g_dbus_method_invocation_return_value (data->invocation,
-                                           g_variant_new ("(x)", xdp_document_get_id (data->doc)));
+    {
+      g_dbus_method_invocation_return_value (data->invocation,
+					     g_variant_new ("(s)", permissions_handle));
+    }
 }
 
 static void
@@ -226,6 +218,8 @@ got_document_for_uri_cb (GObject *source_object,
 {
   g_autoptr(CreateDocData) data = _data;
   g_autoptr(GError) error = NULL;
+  g_autofree char *handle = NULL;
+
 
   data->doc = xdp_document_for_uri_finish (repository, result, &error);
   if (data->doc == NULL)
@@ -239,8 +233,11 @@ got_document_for_uri_cb (GObject *source_object,
                                     NULL,
                                     new_grant_permissions_cb, g_steal_pointer (&data));
   else
-    g_dbus_method_invocation_return_value (data->invocation,
-                                           g_variant_new ("(x)", xdp_document_get_id (data->doc)));
+    {
+      handle = xdp_document_get_handle (data->doc);
+      g_dbus_method_invocation_return_value (data->invocation,
+					     g_variant_new ("(s)", handle));
+    }
 }
 
 static void

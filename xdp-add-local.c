@@ -18,7 +18,7 @@ do_add_local (int argc, char *argv[])
   g_autoptr(GFile) file = NULL;
   g_autofree char *path = NULL;
   char *appid = NULL;
-  gint64 handle;
+  char *handle;
   g_autoptr(GError) error = NULL;
   GUnixFDList *fd_list = NULL;
   GVariant *ret;
@@ -70,7 +70,7 @@ do_add_local (int argc, char *argv[])
                                                        "org.freedesktop.portal.DocumentPortal",
                                                        "AddLocal",
                                                        g_variant_new ("(h)", fd_id),
-                                                       G_VARIANT_TYPE ("(x)"),
+                                                       G_VARIANT_TYPE ("(s)"),
                                                        G_DBUS_CALL_FLAGS_NONE,
                                                        30000,
                                                        fd_list, NULL,
@@ -84,15 +84,15 @@ do_add_local (int argc, char *argv[])
 
   g_object_unref (fd_list);
 
-  g_variant_get (ret, "(x)", &handle);
+  g_variant_get (ret, "(s)", &handle);
 
-  g_print ("document handle: %ld\n", handle);
+  g_print ("document handle: %s\n", handle);
 
   g_variant_unref (ret);
 
   if (appid != NULL)
     {
-      dbus_path = g_strdup_printf ("/org/freedesktop/portal/document/%ld", handle);
+      dbus_path = g_strdup_printf ("/org/freedesktop/portal/document/%s", handle);
 
       ret = g_dbus_connection_call_sync (bus,
                                          "org.freedesktop.portal.DocumentPortal",
@@ -100,7 +100,7 @@ do_add_local (int argc, char *argv[])
                                          "org.freedesktop.portal.Document",
                                          "GrantPermissions",
                                          g_variant_new ("(s^as)", appid, permissions),
-                                         G_VARIANT_TYPE ("(x)"),
+                                         G_VARIANT_TYPE ("(s)"),
                                          G_DBUS_CALL_FLAGS_NONE,
                                          30000,
                                          NULL,
@@ -111,9 +111,9 @@ do_add_local (int argc, char *argv[])
           return 1;
         }
 
-      g_variant_get (ret, "(x)", &handle);
+      g_variant_get (ret, "(s)", &handle);
 
-      g_print ("permission handle: %ld\n", handle);
+      g_print ("permission handle: %s\n", handle);
     }
 
   return 0;

@@ -16,6 +16,7 @@ XdpPermissions *   xdp_permissions_new             (GomRepository      *repo,
                                                     XdpPermissionFlags  permissions,
                                                     gboolean            transient);
 gint64             xdp_permissions_get_id          (XdpPermissions     *permissions);
+char *             xdp_permissions_get_handle      (XdpPermissions     *permissions);
 const char *       xdp_permissions_get_app_id      (XdpPermissions     *permissions);
 XdpPermissionFlags xdp_permissions_get_permissions (XdpPermissions     *permissions);
 

@@ -13,7 +13,7 @@ do_new (int argc, char **argv)
   g_autofree char *uri = NULL;
   char *appid;
   char *title;
-  gint64 handle;
+  char *handle;
   g_autoptr(GError) error = NULL;
   GVariant *ret;
   g_autofree char *path = NULL;
@@ -45,7 +45,7 @@ do_new (int argc, char **argv)
                                      "org.freedesktop.portal.DocumentPortal",
                                      "New",
                                      g_variant_new ("(ss)", uri, title),
-                                     G_VARIANT_TYPE ("(x)"),
+                                     G_VARIANT_TYPE ("(s)"),
                                      G_DBUS_CALL_FLAGS_NONE,
                                      30000,
                                      NULL,
@@ -56,13 +56,13 @@ do_new (int argc, char **argv)
       return 1;
     }
 
-  g_variant_get (ret, "(x)", &handle);
+  g_variant_get (ret, "(s)", &handle);
 
-  g_print ("document handle: %ld\n", handle);
+  g_print ("document handle: %s\n", handle);
 
   g_variant_unref (ret);
 
-  path = g_strdup_printf ("/org/freedesktop/portal/document/%ld", handle);
+  path = g_strdup_printf ("/org/freedesktop/portal/document/%s", handle);
 
   ret = g_dbus_connection_call_sync (bus,
                                      "org.freedesktop.portal.DocumentPortal",
@@ -70,7 +70,7 @@ do_new (int argc, char **argv)
                                      "org.freedesktop.portal.Document",
                                      "GrantPermissions",
                                      g_variant_new ("(s^as)", appid, permissions),
-                                     G_VARIANT_TYPE ("(x)"),
+                                     G_VARIANT_TYPE ("(s)"),
                                      G_DBUS_CALL_FLAGS_NONE,
                                      30000,
                                      NULL,
@@ -81,9 +81,9 @@ do_new (int argc, char **argv)
       return 1;
     }
 
-  g_variant_get (ret, "(x)", &handle);
+  g_variant_get (ret, "(s)", &handle);
 
-  g_print ("permission handle: %ld\n", handle);
+  g_print ("permission handle: %s\n", handle);
 
   return 0;
 }

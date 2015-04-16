@@ -599,13 +599,6 @@ xdp_document_handle_finish_update (XdpDocument *doc,
 
   g_variant_get (parameters, "(u)", &id);
 
-  if (!xdp_document_has_permissions (doc, app_id, XDP_PERMISSION_FLAGS_WRITE))
-    {
-      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
-                                             "No permissions to open file");
-      return;
-    }
-
   for (l = doc->updates; l != NULL; l = l->next)
     {
       XdpDocumentUpdate *l_update = l->data;
@@ -622,12 +615,19 @@ xdp_document_handle_finish_update (XdpDocument *doc,
     {
       g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
                                              "No such update to finish");
-      return;
+      goto out;
     }
 
   doc->updates = g_list_remove (doc->updates, update);
 
   doc->outstanding_operations--;
+
+  if (!xdp_document_has_permissions (doc, app_id, XDP_PERMISSION_FLAGS_WRITE))
+    {
+      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+                                             "No permissions to write file");
+      goto out;
+    }
 
   /* Here we replace the target file using a copy, this is to disconnect the final
      file from all modifications that the writing app could do to the original file
@@ -722,7 +722,8 @@ xdp_document_handle_finish_update (XdpDocument *doc,
     }
 
  out:
-  document_update_free (update);
+  if (update)
+    document_update_free (update);
 }
 
 static void

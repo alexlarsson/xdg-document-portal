@@ -5,6 +5,7 @@
 static const GDBusErrorEntry xdp_error_entries[] = {
   {XDP_ERROR_FAILED,                           "org.freedesktop.portal.document.Failed"},
   {XDP_ERROR_EXISTS,                           "org.freedesktop.portal.document.Exists"},
+  {XDP_ERROR_NO_FILE,                          "org.freedesktop.portal.document.NoFile"},
 };
 
 GQuark

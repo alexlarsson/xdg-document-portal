@@ -11,6 +11,7 @@ G_BEGIN_DECLS
 typedef enum {
   XDP_ERROR_FAILED     = 0,
   XDP_ERROR_EXISTS,
+  XDP_ERROR_NO_FILE,
 } XdpErrorEnum;
 
 

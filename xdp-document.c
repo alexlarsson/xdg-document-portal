@@ -460,8 +460,12 @@ xdp_document_handle_read (XdpDocument *doc,
   if (fd == -1)
     {
       int errsv = errno;
-      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
-                                             "Unable to open file: %s", strerror(errsv));
+      if (errsv == ENOENT)
+        g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_NO_FILE,
+                                               "Document file does not exist");
+      else
+        g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+                                               "Unable to open file: %s", strerror(errsv));
       return;
     }
 
@@ -948,7 +952,12 @@ get_info_cb (GObject *source_object,
   info = g_file_query_info_finish (file, result, &error);
   if (info == NULL)
     {
-      g_dbus_method_invocation_return_gerror (invocation, error);
+      if (g_error_matches (error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND))
+        g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_NO_FILE,
+                                               "Document file does not exist");
+      else
+        g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+                                               error->message);
       return;
     }
 

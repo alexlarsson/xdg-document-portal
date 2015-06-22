@@ -448,7 +448,7 @@ xdp_document_handle_read (XdpDocument *doc,
 
   if (doc->title != NULL)
     {
-      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_NOT_WRITTEN,
                                              "Document not written yet");
       return;
     }
@@ -1058,6 +1058,13 @@ xdp_document_handle_get_info (XdpDocument *doc,
   data = g_new (InfoData, 1);
   data->invocation = invocation;
   data->permissions = xdp_document_get_permissions (doc, app_id);
+
+  if (doc->title != NULL)
+    {
+      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_NOT_WRITTEN,
+                                             "Document not written yet");
+      return;
+    }
 
   g_file_query_info_async (file, ALLOWED_ATTRIBUTES,
                            G_FILE_QUERY_INFO_NONE,

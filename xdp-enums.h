@@ -13,6 +13,11 @@ typedef enum {
   XDP_PERMISSION_FLAGS_ALL               = ((1<<3) - 1)
 } XdpPermissionFlags;
 
+typedef enum {
+  XDP_UPDATE_FLAGS_NONE               = 0,
+  XDP_UPDATE_FLAGS_ENSURE_CREATE      = (1<<0),
+} XdpUpdateFlags;
+
 G_END_DECLS
 
 #endif /* XDP_ENUMS_H */

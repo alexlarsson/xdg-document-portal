@@ -9,7 +9,8 @@ G_BEGIN_DECLS
  * XdpErrorEnum:
  */
 typedef enum {
-  XDP_ERROR_FAILED     = 0
+  XDP_ERROR_FAILED     = 0,
+  XDP_ERROR_EXISTS,
 } XdpErrorEnum;
 
 

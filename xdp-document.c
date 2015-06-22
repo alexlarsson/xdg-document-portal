@@ -33,6 +33,7 @@ typedef struct
 {
   int fd;
   char *owner;
+  guint flags;
 } XdpDocumentUpdate;
 
 
@@ -477,13 +478,31 @@ xdp_document_handle_prepare_update (XdpDocument *doc,
   int fd = -1, ro_fd = -1, fd_id;
   GVariant *retval;
   XdpDocumentUpdate *update;
+  int i;
+  guint update_flags = 0;
 
   g_variant_get (parameters, "(&s^a&s)", &etag, &flags);
+
+  for (i = 0; flags[i] != NULL; i++)
+    {
+      if (strcmp (flags[i], "ensure-create") == 0)
+        update_flags |= XDP_UPDATE_FLAGS_ENSURE_CREATE;
+      else
+        g_debug ("Unknown update flag %s\n", flags[i]);
+    }
 
   if (!xdp_document_has_permissions (doc, app_id, XDP_PERMISSION_FLAGS_WRITE))
     {
       g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
                                              "No permissions to open file");
+      return;
+    }
+
+  if (doc->title == NULL &&
+      (update_flags & XDP_UPDATE_FLAGS_ENSURE_CREATE) != 0)
+    {
+      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_EXISTS,
+                                             "The document is already created");
       return;
     }
 
@@ -539,6 +558,7 @@ xdp_document_handle_prepare_update (XdpDocument *doc,
 
   update = g_new0 (XdpDocumentUpdate, 1);
   update->fd = ro_fd;
+  update->flags = update_flags;
   ro_fd = -1;
   update->owner = g_strdup (g_dbus_method_invocation_get_sender (invocation));
 
@@ -665,6 +685,13 @@ xdp_document_handle_finish_update (XdpDocument *doc,
     }
   else
     {
+      if ((update->flags & XDP_UPDATE_FLAGS_ENSURE_CREATE) != 0)
+        {
+          g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_EXISTS,
+                                                 "The document is already created");
+          goto out;
+        }
+
       dest = g_file_new_for_uri (doc->uri);
 
       output = g_file_replace (dest, NULL, FALSE, 0, NULL, &error);

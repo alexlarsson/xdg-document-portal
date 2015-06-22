@@ -1103,8 +1103,8 @@ xdp_document_handle_delete (XdpDocument *doc,
   if (doc->outstanding_operations > 1)
     {
       g_dbus_method_invocation_return_error (invocation,
-                                             XDP_ERROR, XDP_ERROR_FAILED,
-                                             "Document has active operations");
+                                             XDP_ERROR, XDP_ERROR_OPERATIONS_PENDING,
+                                             "Document has pending operations");
       return;
     }
 

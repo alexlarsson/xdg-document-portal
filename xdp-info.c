@@ -44,9 +44,9 @@ do_info (int argc, const char *argv[])
       return 1;
     }
 
-  if (argc < 2)
+  if (argc < 1)
     {
-      g_printerr ("Usage: xdp info ID [ATTRIBUTE...]\n");
+      g_printerr ("Usage: xdp info ID\n");
       return 1;
     }
 
@@ -62,7 +62,7 @@ do_info (int argc, const char *argv[])
       return 1;
     }
 
-  if (!xdp_dbus_document_call_get_info_sync (proxy, argv + 1, &ret, NULL, &error))
+  if (!xdp_dbus_document_call_get_info_sync (proxy, &ret, NULL, &error))
     {
       g_printerr ("%s\n", error->message);
       return 1;

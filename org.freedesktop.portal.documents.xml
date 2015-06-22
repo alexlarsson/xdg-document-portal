@@ -44,7 +44,6 @@
       <arg type='h' name='fd' direction='out'/>
     </method>
     <method name="GetInfo">
-      <arg type='as' name='attributes' direction='in'/>
       <arg type='a{sv}' name='info' direction='out'/>
     </method>
     <method name="PrepareUpdate">

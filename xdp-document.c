@@ -29,6 +29,36 @@ struct _XdpDocument
   int outstanding_operations;
 };
 
+#define ALLOWED_ATTRIBUTES (  \
+  "standard::name,"           \
+  "standard::display-name,"   \
+  "standard::edit-name,"      \
+  "standard::copy-name,"      \
+  "standard::icon,"            \
+  "standard::symbolic-icon,"   \
+  "standard::content-type,"    \
+  "standard::size,"             \
+  "standard::allocated-size,"   \
+  "etag::value,"                \
+  "access::can-read,"           \
+  "access::can-write,"          \
+  "time::modified,"             \
+  "time::modified-usec,"        \
+  "time::access,"               \
+  "time::access-usec,"          \
+  "time::changed,"              \
+  "time::changed-usec,"         \
+  "time::created,"              \
+  "time::created-usec,"         \
+  "unix::device,"               \
+  "unix::inode,"                \
+  "unix::mode,"                 \
+  "unix::nlink,"                \
+  "unix::uid,"                  \
+  "unix::gid"                   \
+                              )
+
+
 typedef struct
 {
   int fd;
@@ -907,10 +937,13 @@ get_info_cb (GObject *source_object,
   XdpPermissionFlags permissions = info_data->permissions;
   g_autoptr (GFileInfo) info = NULL;
   g_autoptr (GError) error = NULL;
-  GVariant *parameters;
-  const char **attributes;
+  char **attributes;
   GVariantBuilder builder;
   gint i;
+  static GFileAttributeMatcher *allowed_mask = NULL;
+
+  if (allowed_mask == NULL)
+    allowed_mask = g_file_attribute_matcher_new (ALLOWED_ATTRIBUTES);
 
   info = g_file_query_info_finish (file, result, &error);
   if (info == NULL)
@@ -919,8 +952,9 @@ get_info_cb (GObject *source_object,
       return;
     }
 
-  parameters = g_dbus_method_invocation_get_parameters (invocation);
-  g_variant_get (parameters, "(^a&s)", &attributes);
+  g_file_info_set_attribute_mask (info, allowed_mask);
+
+  attributes = g_file_info_list_attributes (info, NULL);
 
   g_variant_builder_init (&builder, G_VARIANT_TYPE_VARDICT);
   for (i = 0; attributes[i]; i++)
@@ -989,6 +1023,7 @@ get_info_cb (GObject *source_object,
 
       g_variant_builder_add (&builder, "{sv}", attributes[i], v);
     }
+  g_strfreev (attributes);
 
   g_dbus_method_invocation_return_value (invocation, g_variant_new ("(a{sv})", &builder));
 }
@@ -999,26 +1034,8 @@ xdp_document_handle_get_info (XdpDocument *doc,
                               const char *app_id,
                               GVariant *parameters)
 {
-  const char **attributes;
   g_autoptr (GFile) file = NULL;
-  GString *s = NULL;
-  g_autofree char *attrs = NULL;
-  gint i;
-  const gchar * const allowed_attributes[] = {
-    "standard::name",
-    "standard::display-name",
-    "standard::icon",
-    "standard::symbolic-icon",
-    "standard::content-type",
-    "standard::size",
-    "etag::value",
-    "access::can-read",
-    "access::can-write",
-    NULL
-  };
   InfoData *data;
-
-  g_variant_get (parameters, "(^a&s)", &attributes);
 
   if (!xdp_document_has_permissions (doc, app_id, XDP_PERMISSION_FLAGS_READ))
     {
@@ -1027,30 +1044,13 @@ xdp_document_handle_get_info (XdpDocument *doc,
       return;
     }
 
-  s = g_string_new ("");
-  for (i = 0; attributes[i]; i++)
-    {
-      if (!g_strv_contains (allowed_attributes, attributes[i]))
-        {
-          g_string_free (s, TRUE);
-          g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
-                                                 "Not an allowed attribute: %s", attributes[i]);
-          return;
-        }
-
-      if (i > 0)
-        g_string_append_c (s, ',');
-      g_string_append (s, attributes[i]);
-    }
-  attrs = g_string_free (s, FALSE);
-
   file = g_file_new_for_uri (doc->uri);
 
   data = g_new (InfoData, 1);
   data->invocation = invocation;
   data->permissions = xdp_document_get_permissions (doc, app_id);
 
-  g_file_query_info_async (file, attrs,
+  g_file_query_info_async (file, ALLOWED_ATTRIBUTES,
                            G_FILE_QUERY_INFO_NONE,
                            G_PRIORITY_DEFAULT,
                            NULL,
@@ -1125,7 +1125,7 @@ struct {
   { "AbortUpdate", "(u)", xdp_document_handle_abort_update},
   { "GrantPermissions", "(sas)", xdp_document_handle_grant_permissions},
   { "RevokePermissions", "(s)", xdp_document_handle_revoke_permissions},
-  { "GetInfo", "(as)", xdp_document_handle_get_info},
+  { "GetInfo", "()", xdp_document_handle_get_info},
   { "Delete", "()", xdp_document_handle_delete}
 };
 

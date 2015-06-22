@@ -634,6 +634,44 @@ new_document_saved (GObject *source_object,
   g_dbus_method_invocation_return_value (invocation, retval);
 }
 
+static gboolean
+copy_fd_to_out (int in_fd,
+                GOutputStream *output,
+                GError **error)
+{
+  gssize n_read;
+  char buffer[8192];
+  g_autoptr(GError) my_error = NULL;
+
+  do
+    {
+      do
+        n_read = read (in_fd, buffer, sizeof (buffer));
+      while (n_read == -1 && errno == EINTR);
+
+      if (n_read == -1)
+        {
+          g_set_error (error, XDP_ERROR, XDP_ERROR_FAILED,
+                       "Error reading file");
+          return FALSE;
+        }
+
+      if (n_read == 0)
+        break;
+
+      if (!g_output_stream_write_all (output, buffer, n_read, NULL, NULL, &my_error))
+        {
+          g_set_error (error, XDP_ERROR, XDP_ERROR_FAILED,
+                       "Error writing file: %s", my_error->message);
+          return FALSE;;
+        }
+    }
+  while (TRUE);
+
+  return TRUE;
+}
+
+
 static void
 xdp_document_handle_finish_update (XdpDocument *doc,
                                    GDBusMethodInvocation *invocation,
@@ -647,8 +685,6 @@ xdp_document_handle_finish_update (XdpDocument *doc,
   g_autoptr(GFileOutputStream) output = NULL;
   XdpDocumentUpdate *update = NULL;
   GVariant *retval;
-  gssize n_read;
-  char buffer[8192];
   GList *l;
 
   g_variant_get (parameters, "(u)", &id);
@@ -744,29 +780,11 @@ xdp_document_handle_finish_update (XdpDocument *doc,
      and generate a uri. the next should use the same uri as the first.
   */
 
-  do
+  if (!copy_fd_to_out (update->fd, G_OUTPUT_STREAM (output), &error))
     {
-      do
-        n_read = read (update->fd, buffer, sizeof (buffer));
-      while (n_read == -1 && errno == EINTR);
-      if (n_read == -1)
-        {
-          g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
-                                                 "Error reading file");
-          goto out;
-        }
-
-      if (n_read == 0)
-        break;
-
-      if (!g_output_stream_write_all (G_OUTPUT_STREAM (output), buffer, n_read, NULL, NULL, &error))
-        {
-          g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
-                                                 "Error writing file: %s", error->message);
-          goto out;
-        }
+      g_dbus_method_invocation_return_gerror (invocation, error);
+      goto out;
     }
-  while (1);
 
   if (doc->title)
     {

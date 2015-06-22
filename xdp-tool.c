@@ -15,6 +15,7 @@ extern int do_cat (int argc, char *argv[]);
 extern int do_add (int argc, char *argv[]);
 extern int do_add_local (int argc, char *argv[]);
 extern int do_new (int argc, char *argv[]);
+extern int do_new_local (int argc, char *argv[]);
 extern int do_update (int argc, char *argv[]);
 extern int do_info (int argc, char *argv[]);
 
@@ -48,6 +49,8 @@ main (int argc, char *argv[])
     return do_add_local (argc, argv);
   else if (strcmp (command, "new") == 0)
     return do_new (argc, argv);
+  else if (strcmp (command, "new-local") == 0)
+    return do_new_local (argc, argv);
   else if (strcmp (command, "update") == 0)
     return do_update (argc, argv);
   else if (strcmp (command, "info") == 0)

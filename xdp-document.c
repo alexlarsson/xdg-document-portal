@@ -61,9 +61,13 @@ struct _XdpDocument
 
 typedef struct
 {
+  XdpDocument *doc;
   int fd;
   char *owner;
   guint flags;
+
+  GDBusMethodInvocation *finish_invocation;
+  gboolean was_created;
 } XdpDocumentUpdate;
 
 
@@ -95,10 +99,16 @@ typedef struct
   GList *pending;
 } DocumentAdd;
 
+static void finish_update_copy_cb (GObject *source_object,
+                                   GAsyncResult *res,
+                                   gpointer user_data);
+
 static void
 xdp_document_finalize (GObject *object)
 {
   XdpDocument *doc = (XdpDocument *)object;
+
+  g_assert (doc->updates == NULL);
 
   g_free (doc->uri);
   g_free (doc->title);
@@ -490,6 +500,7 @@ xdp_document_handle_read (XdpDocument *doc,
 static void
 document_update_free (XdpDocumentUpdate *update)
 {
+  g_clear_object (&update->doc);
   close (update->fd);
   g_free (update->owner);
   g_free (update);
@@ -591,9 +602,10 @@ xdp_document_handle_prepare_update (XdpDocument *doc,
     }
 
   update = g_new0 (XdpDocumentUpdate, 1);
+  update->doc = g_object_ref (doc);
   update->fd = ro_fd;
-  update->flags = update_flags;
   ro_fd = -1;
+  update->flags = update_flags;
   update->owner = g_strdup (g_dbus_method_invocation_get_sender (invocation));
 
   doc->updates = g_list_append (doc->updates, update);
@@ -643,6 +655,10 @@ copy_fd_to_out (int in_fd,
   char buffer[8192];
   g_autoptr(GError) my_error = NULL;
 
+  /* TODO:
+     Ensure the copy can use splice().
+  */
+
   do
     {
       do
@@ -663,14 +679,60 @@ copy_fd_to_out (int in_fd,
         {
           g_set_error (error, XDP_ERROR, XDP_ERROR_FAILED,
                        "Error writing file: %s", my_error->message);
-          return FALSE;;
+          return FALSE;
         }
     }
   while (TRUE);
 
+  if (!g_output_stream_close (output, NULL, &my_error))
+    {
+      g_set_error (error, XDP_ERROR, XDP_ERROR_FAILED,
+                   "Error writing file: %s", my_error->message);
+      return FALSE;
+    }
+
   return TRUE;
 }
 
+
+static void
+copy_fd_to_out_thread (GTask           *task,
+                       gpointer         source_object,
+                       gpointer         task_data,
+                       GCancellable    *cancellable)
+{
+  GOutputStream *output = G_OUTPUT_STREAM (source_object);
+  int in_fd = GPOINTER_TO_INT (g_task_get_task_data (task));
+  g_autoptr(GError) error = NULL;
+
+  if (!copy_fd_to_out (in_fd, output, &error))
+    g_task_return_error (task, error);
+  else
+    g_task_return_boolean (task, TRUE);
+}
+
+static void
+copy_fd_to_out_async (int in_fd,
+                      GOutputStream *output,
+                      GAsyncReadyCallback  callback,
+                      gpointer             callback_data)
+{
+  GTask *task;
+
+  task = g_task_new (output, NULL, callback, callback_data);
+  g_task_set_task_data (task, GINT_TO_POINTER (in_fd), NULL);
+
+  g_task_run_in_thread (task, copy_fd_to_out_thread);
+  g_object_unref (task);
+}
+
+static gboolean
+copy_fd_to_out_async_finish (GOutputStream *output,
+                             GAsyncResult *res,
+                             GError **error)
+{
+  return g_task_propagate_boolean (G_TASK (res), error);
+}
 
 static void
 xdp_document_handle_finish_update (XdpDocument *doc,
@@ -684,7 +746,6 @@ xdp_document_handle_finish_update (XdpDocument *doc,
   g_autoptr(GFile) dest = NULL;
   g_autoptr(GFileOutputStream) output = NULL;
   XdpDocumentUpdate *update = NULL;
-  GVariant *retval;
   GList *l;
 
   g_variant_get (parameters, "(u)", &id);
@@ -709,8 +770,6 @@ xdp_document_handle_finish_update (XdpDocument *doc,
     }
 
   doc->updates = g_list_remove (doc->updates, update);
-
-  doc->outstanding_operations--;
 
   if (!xdp_document_has_permissions (doc, app_id, XDP_PERMISSION_FLAGS_WRITE))
     {
@@ -752,6 +811,12 @@ xdp_document_handle_finish_update (XdpDocument *doc,
                                                  "%s", error->message);
           goto out;
         }
+
+      g_clear_pointer (&doc->title, g_free);
+      g_free (doc->uri);
+      doc->uri = g_file_get_uri (dest);
+
+      update->was_created = TRUE;
     }
   else
     {
@@ -773,37 +838,48 @@ xdp_document_handle_finish_update (XdpDocument *doc,
         }
     }
 
-  /* TODO:
-     This copy should be done async, and ensure it can use splice().
-     Take care though so that we're still handling the case of two concurrent
-     updates to a new document. Only the first should look at the title
-     and generate a uri. the next should use the same uri as the first.
-  */
+  update->finish_invocation = invocation;
+  copy_fd_to_out_async (update->fd, G_OUTPUT_STREAM (output), finish_update_copy_cb, update);
 
-  if (!copy_fd_to_out (update->fd, G_OUTPUT_STREAM (output), &error))
-    {
-      g_dbus_method_invocation_return_gerror (invocation, error);
-      goto out;
-    }
-
-  if (doc->title)
-    {
-      g_clear_pointer (&doc->title, g_free);
-      g_free (doc->uri);
-      doc->uri = g_file_get_uri (dest);
-
-      gom_resource_save_async (GOM_RESOURCE (doc), new_document_saved, invocation);
-    }
-  else
-    {
-      retval = g_variant_new ("()");
-      g_dbus_method_invocation_return_value (invocation, retval);
-    }
+  return;
 
  out:
+  doc->outstanding_operations--;
+
   if (update)
     document_update_free (update);
 }
+
+static void
+finish_update_copy_cb (GObject *source_object,
+                       GAsyncResult *res,
+                       gpointer user_data)
+{
+  GOutputStream *output = G_OUTPUT_STREAM (source_object);
+  XdpDocumentUpdate *update = user_data;
+  XdpDocument *doc = update->doc;
+  GVariant *retval;
+  g_autoptr(GError) error = NULL;
+
+  if (!copy_fd_to_out_async_finish (output, res, &error))
+    {
+      g_dbus_method_invocation_return_gerror (update->finish_invocation, error);
+      goto out;
+    }
+
+  if (update->was_created)
+    gom_resource_save_async (GOM_RESOURCE (doc), new_document_saved, update->finish_invocation);
+  else
+    {
+      retval = g_variant_new ("()");
+      g_dbus_method_invocation_return_value (update->finish_invocation, retval);
+    }
+
+ out:
+  doc->outstanding_operations--;
+  document_update_free (update);
+}
+
 
 static void
 xdp_document_handle_abort_update (XdpDocument *doc,

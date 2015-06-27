@@ -393,7 +393,7 @@ xdp_document_revoke_permissions (XdpDocument *doc,
   id = handle_to_id (handle);
   if (id == 0)
     {
-      g_task_return_new_error (task, XDP_ERROR, XDP_ERROR_FAILED, "No such permissions");
+      g_task_return_new_error (task, XDP_ERROR, XDP_ERROR_NOT_FOUND, "No such permissions");
       return;
     }
   
@@ -413,7 +413,7 @@ xdp_document_revoke_permissions (XdpDocument *doc,
         }
     }
 
-  g_task_return_new_error (task, XDP_ERROR, XDP_ERROR_FAILED, "No such permissions");
+  g_task_return_new_error (task, XDP_ERROR, XDP_ERROR_NOT_FOUND, "No such permissions");
 }
 
 gboolean
@@ -451,7 +451,7 @@ xdp_document_handle_read (XdpDocument *doc,
 
   if (!xdp_document_has_permissions (doc, app_id, XDP_PERMISSION_FLAGS_READ))
     {
-      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_NOT_ALLOWED,
                                              "No permissions to open file");
       return;
     }
@@ -538,7 +538,7 @@ xdp_document_handle_prepare_update (XdpDocument *doc,
 
   if (!xdp_document_has_permissions (doc, app_id, XDP_PERMISSION_FLAGS_WRITE))
     {
-      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_NOT_ALLOWED,
                                              "No permissions to open file");
       return;
     }
@@ -764,7 +764,7 @@ xdp_document_handle_finish_update (XdpDocument *doc,
   if (update == NULL ||
       strcmp (update->owner, g_dbus_method_invocation_get_sender (invocation)) != 0)
     {
-      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_NOT_FOUND,
                                              "No such update to finish");
       goto out;
     }
@@ -773,7 +773,7 @@ xdp_document_handle_finish_update (XdpDocument *doc,
 
   if (!xdp_document_has_permissions (doc, app_id, XDP_PERMISSION_FLAGS_WRITE))
     {
-      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_NOT_ALLOWED,
                                              "No permissions to write file");
       goto out;
     }
@@ -908,7 +908,7 @@ xdp_document_handle_abort_update (XdpDocument *doc,
   if (update == NULL ||
       strcmp (update->owner, g_dbus_method_invocation_get_sender (invocation)) != 0)
     {
-      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_NOT_FOUND,
                                              "No such update to finish");
       goto out;
     }
@@ -966,7 +966,7 @@ xdp_document_handle_grant_permissions (XdpDocument *doc,
         perms |= XDP_PERMISSION_FLAGS_GRANT_PERMISSIONS;
       else
         {
-          g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+          g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_NOT_FOUND,
                                                  "No such permission: %s", permissions[i]);
           return;
         }
@@ -975,7 +975,7 @@ xdp_document_handle_grant_permissions (XdpDocument *doc,
   /* Must have grant-permissions and all the newly granted permissions */
   if (!xdp_document_has_permissions (doc, app_id, XDP_PERMISSION_FLAGS_GRANT_PERMISSIONS | perms))
     {
-      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_NOT_ALLOWED,
                                              "Not enough permissions");
       return;
     }
@@ -1011,7 +1011,7 @@ xdp_document_handle_revoke_permissions (XdpDocument *doc,
 
   if (!xdp_document_has_permissions (doc, app_id, XDP_PERMISSION_FLAGS_GRANT_PERMISSIONS))
     {
-      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_NOT_ALLOWED,
                                              "No permissions to revoke permissions");
       return;
     }
@@ -1142,7 +1142,7 @@ xdp_document_handle_get_info (XdpDocument *doc,
 
   if (!xdp_document_has_permissions (doc, app_id, XDP_PERMISSION_FLAGS_READ))
     {
-      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_FAILED,
+      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_NOT_ALLOWED,
                                              "No permissions to get file info");
       return;
     }
@@ -1491,14 +1491,14 @@ xdp_document_load (GomRepository      *repository,
   id = handle_to_id (handle);
   if (id == 0)
     {
-      g_task_return_new_error (task, XDP_ERROR, XDP_ERROR_FAILED, "No such document");
+      g_task_return_new_error (task, XDP_ERROR, XDP_ERROR_NOT_FOUND, "No such document");
       return;
     }
   
   doc = g_hash_table_lookup (documents, &id);
 
   if (doc && doc->deleting)
-    g_task_return_new_error (task, XDP_ERROR, XDP_ERROR_FAILED, "Document being deleted");
+    g_task_return_new_error (task, XDP_ERROR, XDP_ERROR_OPERATIONS_PENDING, "Document being deleted");
   else if (doc)
     g_task_return_pointer (task, g_object_ref (doc), g_object_unref);
   else

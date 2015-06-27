@@ -6,8 +6,11 @@ static const GDBusErrorEntry xdp_error_entries[] = {
   {XDP_ERROR_FAILED,                           "org.freedesktop.portal.document.Failed"},
   {XDP_ERROR_EXISTS,                           "org.freedesktop.portal.document.Exists"},
   {XDP_ERROR_NO_FILE,                          "org.freedesktop.portal.document.NoFile"},
+  {XDP_ERROR_NOT_FOUND,                        "org.freedesktop.portal.document.NotFound"},
   {XDP_ERROR_NOT_WRITTEN,                      "org.freedesktop.portal.document.NotWritten"},
   {XDP_ERROR_OPERATIONS_PENDING,               "org.freedesktop.portal.document.OperationsPending"},
+  {XDP_ERROR_NOT_ALLOWED,                      "org.freedesktop.portal.document.NotAllowed"},
+  {XDP_ERROR_INVALID_ARGUMENT,                 "org.freedesktop.portal.document.InvalidArgument"},
 };
 
 GQuark

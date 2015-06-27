@@ -252,7 +252,7 @@ portal_add (GDBusMethodInvocation *invocation,
     {
       /* don't allow this from within the sandbox */
       g_dbus_method_invocation_return_error (invocation,
-                                             XDP_ERROR, XDP_ERROR_FAILED,
+                                             XDP_ERROR, XDP_ERROR_NOT_ALLOWED,
                                              "Not allowed inside sandbox");
       return;
     }
@@ -311,7 +311,7 @@ portal_add_local (GDBusMethodInvocation *invocation,
       (symlink_size = readlink (proc_path, path_buffer, sizeof (path_buffer) - 1)) < 0)
     {
       g_dbus_method_invocation_return_error (invocation,
-                                             XDP_ERROR, XDP_ERROR_FAILED,
+                                             XDP_ERROR, XDP_ERROR_INVALID_ARGUMENT,
                                              "Invalid fd passed");
       return;
     }
@@ -324,8 +324,8 @@ portal_add_local (GDBusMethodInvocation *invocation,
     {
       /* Don't leak any info about real file path existance, etc */
       g_dbus_method_invocation_return_error (invocation,
-                                             XDP_ERROR, XDP_ERROR_FAILED,
-                                             "No such file");
+                                             XDP_ERROR, XDP_ERROR_INVALID_ARGUMENT,
+                                             "Invalid fd passed");
       return;
     }
 
@@ -359,7 +359,7 @@ portal_new (GDBusMethodInvocation *invocation,
     {
       /* don't allow this from within the sandbox for now */
       g_dbus_method_invocation_return_error (invocation,
-                                             XDP_ERROR, XDP_ERROR_FAILED,
+                                             XDP_ERROR, XDP_ERROR_NOT_ALLOWED,
                                              "Not allowed inside sandbox");
       return;
     }
@@ -370,7 +370,7 @@ portal_new (GDBusMethodInvocation *invocation,
   if (title == NULL || title[0] == '\0')
     {
       g_dbus_method_invocation_return_error (invocation,
-                                             XDP_ERROR, XDP_ERROR_FAILED,
+                                             XDP_ERROR, XDP_ERROR_INVALID_ARGUMENT,
                                              "Title must not be empty");
       return;
     }
@@ -404,7 +404,7 @@ portal_new_local (GDBusMethodInvocation *invocation,
   if (title == NULL || title[0] == '\0')
     {
       g_dbus_method_invocation_return_error (invocation,
-                                             XDP_ERROR, XDP_ERROR_FAILED,
+                                             XDP_ERROR, XDP_ERROR_INVALID_ARGUMENT,
                                              "Title must not be empty");
       return;
     }
@@ -435,7 +435,7 @@ portal_new_local (GDBusMethodInvocation *invocation,
       (symlink_size = readlink (proc_path, path_buffer, sizeof (path_buffer) - 1)) < 0)
     {
       g_dbus_method_invocation_return_error (invocation,
-                                             XDP_ERROR, XDP_ERROR_FAILED,
+                                             XDP_ERROR, XDP_ERROR_INVALID_ARGUMENT,
                                              "Invalid fd passed");
       return;
     }
@@ -448,8 +448,8 @@ portal_new_local (GDBusMethodInvocation *invocation,
     {
       /* Don't leak any info about real file path existance, etc */
       g_dbus_method_invocation_return_error (invocation,
-                                             XDP_ERROR, XDP_ERROR_FAILED,
-                                             "No such file");
+                                             XDP_ERROR, XDP_ERROR_INVALID_ARGUMENT,
+                                             "Invalid fd passed");
       return;
     }
 

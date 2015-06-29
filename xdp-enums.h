@@ -1,8 +1,6 @@
 #ifndef XDP_ENUMS_H
 #define XDP_ENUMS_H
 
-#include <gom/gom.h>
-
 G_BEGIN_DECLS
 
 typedef enum {

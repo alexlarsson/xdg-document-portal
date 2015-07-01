@@ -66,10 +66,10 @@
     <method name="GrantPermissions">
       <arg type='s' name='appid' direction='in'/>
       <arg type='as' name='permissions' direction='in'/>
-      <arg type='s' name='cookie' direction='out'/>
     </method>
     <method name="RevokePermissions">
-      <arg type='s' name='cookie' direction='in'/>
+      <arg type='s' name='appid' direction='in'/>
+      <arg type='as' name='permissions' direction='in'/>
     </method>
     <method name="Delete">
     </method>

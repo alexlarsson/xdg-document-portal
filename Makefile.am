@@ -42,13 +42,13 @@ service_DATA = org.freedesktop.portal.DocumentPortal.service
 
 xdg_document_portal_SOURCES = \
 	xdp-main.c		\
-	xdp-document.c		\
-	xdp-document.h		\
-	xdp-permissions.c	\
-	xdp-permissions.h	\
 	xdp-error.c		\
 	xdp-error.h		\
 	xdp-enums.h		\
+	xdp-doc-db.h		\
+	xdp-doc-db.c		\
+	gvdb/gvdb-reader.c	\
+	gvdb/gvdb-builder.c	\
 	$(dbus_built_sources)	\
 	xdp-resources.h		\
 	xdp-resources.c		\
@@ -56,8 +56,8 @@ xdg_document_portal_SOURCES = \
 	xdp-util.c		\
 	$(NULL)
 
-xdg_document_portal_LDADD = $(BASE_LIBS) $(GOM_LIBS)
-xdg_document_portal_CFLAGS = $(BASE_CFLAGS) $(GOM_CFLAGS)
+xdg_document_portal_LDADD = $(BASE_LIBS)
+xdg_document_portal_CFLAGS = $(BASE_CFLAGS)
 
 xdp_SOURCES = \
 	xdp-tool.c		\

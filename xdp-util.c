@@ -1,5 +1,6 @@
 #include "config.h"
 #include <string.h>
+#include <errno.h>
 #include <gio/gio.h>
 #include "xdp-error.h"
 
@@ -200,4 +201,93 @@ xdp_connection_track_name_owners (GDBusConnection *connection)
                                       G_DBUS_SIGNAL_FLAGS_NONE,
                                       name_owner_changed,
                                       NULL, NULL);
+}
+
+
+static gboolean
+copy_fd_to_out (int in_fd,
+                GOutputStream *output,
+                GError **error)
+{
+  gssize n_read;
+  char buffer[8192];
+  g_autoptr(GError) my_error = NULL;
+
+  /* TODO:
+     Ensure the copy can use splice().
+  */
+
+  do
+    {
+      do
+        n_read = read (in_fd, buffer, sizeof (buffer));
+      while (n_read == -1 && errno == EINTR);
+
+      if (n_read == -1)
+        {
+          g_set_error (error, XDP_ERROR, XDP_ERROR_FAILED,
+                       "Error reading file");
+          return FALSE;
+        }
+
+      if (n_read == 0)
+        break;
+
+      if (!g_output_stream_write_all (output, buffer, n_read, NULL, NULL, &my_error))
+        {
+          g_set_error (error, XDP_ERROR, XDP_ERROR_FAILED,
+                       "Error writing file: %s", my_error->message);
+          return FALSE;
+        }
+    }
+  while (TRUE);
+
+  if (!g_output_stream_close (output, NULL, &my_error))
+    {
+      g_set_error (error, XDP_ERROR, XDP_ERROR_FAILED,
+                   "Error writing file: %s", my_error->message);
+      return FALSE;
+    }
+
+  return TRUE;
+}
+
+
+static void
+copy_fd_to_out_thread (GTask           *task,
+                       gpointer         source_object,
+                       gpointer         task_data,
+                       GCancellable    *cancellable)
+{
+  GOutputStream *output = G_OUTPUT_STREAM (source_object);
+  int in_fd = GPOINTER_TO_INT (g_task_get_task_data (task));
+  g_autoptr(GError) error = NULL;
+
+  if (!copy_fd_to_out (in_fd, output, &error))
+    g_task_return_error (task, error);
+  else
+    g_task_return_boolean (task, TRUE);
+}
+
+void
+xdp_copy_fd_to_out_async (int in_fd,
+			  GOutputStream *output,
+			  GAsyncReadyCallback  callback,
+			  gpointer             callback_data)
+{
+  GTask *task;
+
+  task = g_task_new (output, NULL, callback, callback_data);
+  g_task_set_task_data (task, GINT_TO_POINTER (in_fd), NULL);
+
+  g_task_run_in_thread (task, copy_fd_to_out_thread);
+  g_object_unref (task);
+}
+
+gboolean
+xdp_copy_fd_to_out_async_finish (GOutputStream *output,
+				 GAsyncResult *res,
+				 GError **error)
+{
+  return g_task_propagate_boolean (G_TASK (res), error);
 }

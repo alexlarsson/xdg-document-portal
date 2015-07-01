@@ -43,8 +43,6 @@ PKG_CHECK_MODULES(BASE, [glib-2.0 gio-2.0 gio-unix-2.0 fuse])
 AC_SUBST(BASE_CFLAGS)
 AC_SUBST(BASE_LIBS)
 
-PKG_CHECK_MODULES(GOM, [gom-1.0])
-
 AC_CONFIG_FILES([
 Makefile
 ])

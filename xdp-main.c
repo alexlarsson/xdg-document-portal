@@ -15,6 +15,7 @@
 #include "xdp-doc-db.h"
 #include "xdp-error.h"
 #include "xdp-util.h"
+#include "xdp-fuse.h"
 
 typedef struct
 {
@@ -27,6 +28,7 @@ typedef struct
 } XdpDocUpdate;
 
 
+static GMainLoop *loop = NULL;
 static XdpDocDb *db = NULL;
 static GDBusNodeInfo *introspection_data = NULL;
 
@@ -363,6 +365,13 @@ on_name_acquired (GDBusConnection *connection,
                   const gchar     *name,
                   gpointer         user_data)
 {
+  g_autoptr(GError) error = NULL;
+  if (!xdp_fuse_init (db, &error))
+    {
+      g_printerr ("fuse init failed: %s\n", error->message);
+      exit (1);
+    }
+
 }
 
 static void
@@ -370,7 +379,7 @@ on_name_lost (GDBusConnection *connection,
               const gchar     *name,
               gpointer         user_data)
 {
-  exit (1);
+  g_main_loop_quit (loop);
 }
 
 static void
@@ -378,13 +387,42 @@ session_bus_closed (GDBusConnection *connection,
                     gboolean         remote_peer_vanished,
                     GError          *bus_error)
 {
-  g_autoptr(GError) error = NULL;
+  g_main_loop_quit (loop);
+}
 
-  if (xdp_doc_db_is_dirty (db))
+static void
+exit_handler (int sig)
+{
+  g_main_loop_quit (loop);
+}
+
+static int
+set_one_signal_handler (int sig,
+                        void (*handler)(int),
+                        int remove)
+{
+  struct sigaction sa;
+  struct sigaction old_sa;
+
+  memset (&sa, 0, sizeof (struct sigaction));
+  sa.sa_handler = remove ? SIG_DFL : handler;
+  sigemptyset (&(sa.sa_mask));
+  sa.sa_flags = 0;
+
+  if (sigaction (sig, NULL, &old_sa) == -1)
     {
-      if (!xdp_doc_db_save (db, &error))
-        g_warning ("db save: %s\n", error->message);
+      g_warning ("cannot get old signal handler");
+      return -1;
     }
+
+  if (old_sa.sa_handler == (remove ? handler : SIG_DFL) &&
+      sigaction (sig, &sa, NULL) == -1)
+    {
+      g_warning ("cannot set signal handler");
+      return -1;
+    }
+
+  return 0;
 }
 
 int
@@ -392,7 +430,6 @@ main (int    argc,
       char **argv)
 {
   guint owner_id;
-  GMainLoop *loop;
   GBytes *introspection_bytes;
   g_autoptr(GList) object_types = NULL;
   g_autoptr(GError) error = NULL;
@@ -408,6 +445,8 @@ main (int    argc,
   g_setenv ("GIO_USE_VFS", "local", TRUE);
 
   g_set_prgname (argv[0]);
+
+  loop = g_main_loop_new (NULL, FALSE);
 
   data_path = g_build_filename (g_get_user_data_dir(), "xdg-document-portal", NULL);
   if (g_mkdir_with_parents  (data_path, 0700))
@@ -434,7 +473,16 @@ main (int    argc,
       return 3;
     }
 
+  /* We want do do our custom post-mainloop exit */
+  g_dbus_connection_set_exit_on_close (session_bus, FALSE);
+
   g_signal_connect (session_bus, "closed", G_CALLBACK (session_bus_closed), NULL);
+
+  if (set_one_signal_handler(SIGHUP, exit_handler, 0) == -1 ||
+      set_one_signal_handler(SIGINT, exit_handler, 0) == -1 ||
+      set_one_signal_handler(SIGTERM, exit_handler, 0) == -1 ||
+      set_one_signal_handler(SIGPIPE, SIG_IGN, 0) == -1)
+    return -1;
 
   introspection_bytes = g_resources_lookup_data ("/org/freedesktop/portal/DocumentPortal/org.freedesktop.portal.documents.xml", 0, NULL);
   g_assert (introspection_bytes != NULL);
@@ -450,8 +498,16 @@ main (int    argc,
                              NULL,
                              NULL);
 
-  loop = g_main_loop_new (NULL, FALSE);
   g_main_loop_run (loop);
+
+  if (xdp_doc_db_is_dirty (db))
+    {
+      g_autoptr(GError) error = NULL;
+      if (!xdp_doc_db_save (db, &error))
+        g_warning ("db save: %s\n", error->message);
+    }
+
+  xdp_fuse_exit ();
 
   g_bus_unown_name (owner_id);
 

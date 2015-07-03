@@ -54,6 +54,8 @@ xdg_document_portal_SOURCES = \
 	xdp-resources.c		\
 	xdp-util.h		\
 	xdp-util.c		\
+	xdp-fuse.h		\
+	xdp-fuse.c		\
 	$(NULL)
 
 xdg_document_portal_LDADD = $(BASE_LIBS)

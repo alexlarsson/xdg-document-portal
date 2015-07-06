@@ -1,6 +1,7 @@
 #include "config.h"
 
 #include <string.h>
+#include <glib/gprintf.h>
 #include <gio/gio.h>
 
 #include "gvdb/gvdb-reader.h"
@@ -536,14 +537,10 @@ xdp_doc_db_create_doc (XdpDocDb *db,
                        const char *title)
 {
   GVariant *doc;
-  int i;
-  const char chars[] =
-    "abcdefghijklmnopqrstuvwxyz"
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-    "0123456789";
+  guint32 id;
+  char id_num[17];
 
-  char id[7];
-
+  /* Reuse pre-existing entry with same uri and no title */
   if (title == NULL || *title == 0)
     {
       g_autoptr (GVariant) uri_v = xdp_doc_db_lookup_uri (db, uri);
@@ -562,20 +559,20 @@ xdp_doc_db_create_doc (XdpDocDb *db,
   while (TRUE)
     {
       g_autoptr(GVariant) existing_doc = NULL;
-      for (i = 0; i < G_N_ELEMENTS(id) - 1; i++)
-        id[i] = chars[g_random_int_range (0, strlen(chars))];
-      id[i] = 0;
 
-      existing_doc = xdp_doc_db_lookup_doc (db, id);
+      id = (guint32)g_random_int ();
+      g_sprintf (id_num, "%x", id);
+
+      existing_doc = xdp_doc_db_lookup_doc (db, id_num);
       if (existing_doc == NULL)
         break;
     }
 
   doc = xdp_doc_new (uri, title,
                      g_variant_new_array (G_VARIANT_TYPE ("(su)"), NULL, 0));
-  xdp_doc_db_insert_doc (db, id, doc);
+  xdp_doc_db_insert_doc (db, id_num, doc);
 
-  return g_strdup (id);
+  return g_strdup (id_num);
 }
 
 static void

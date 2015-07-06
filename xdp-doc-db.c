@@ -39,6 +39,31 @@ xdp_doc_new (const char *uri,
 {
   return g_variant_new ("(&s&s@a(su))", uri, title, permissions);
 }
+
+char *
+xdp_doc_dup_basename (GVariant *doc)
+{
+  g_autoptr(GFile) file = g_file_new_for_uri (xdp_doc_get_uri (doc));
+
+  return g_file_get_basename (file);
+}
+
+char *
+xdp_doc_dup_dirname (GVariant *doc)
+{
+  g_autofree char *path = xdp_doc_dup_path (doc);
+
+  return g_path_get_dirname (path);
+}
+
+char *
+xdp_doc_dup_path (GVariant *doc)
+{
+  g_autoptr(GFile) file = g_file_new_for_uri (xdp_doc_get_uri (doc));
+
+  return g_file_get_path (file);
+}
+
 const char *
 xdp_doc_get_uri (GVariant *doc)
 {

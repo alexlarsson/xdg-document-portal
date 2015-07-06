@@ -48,6 +48,9 @@ gboolean           xdp_doc_has_permissions    (GVariant            *doc,
                                                XdpPermissionFlags   permissions);
 const char *       xdp_doc_get_uri            (GVariant            *doc);
 const char *       xdp_doc_get_title          (GVariant            *doc);
+char *             xdp_doc_dup_path           (GVariant            *doc);
+char *             xdp_doc_dup_basename       (GVariant            *doc);
+char *             xdp_doc_dup_dirname        (GVariant            *doc);
 gboolean           xdp_doc_has_title          (GVariant            *doc);
 
 G_END_DECLS

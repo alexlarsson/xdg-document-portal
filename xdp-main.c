@@ -198,6 +198,9 @@ handle_document_grant_permissions (const char *doc_id,
 
   xdp_doc_db_set_permissions (db, doc_id, target_app_id, perms, TRUE);
   queue_db_save ();
+
+  g_dbus_method_invocation_return_value (invocation, g_variant_new ("()"));
+
 }
 
 static void
@@ -244,6 +247,8 @@ handle_document_revoke_permissions (const char *doc_id,
                               xdp_doc_get_permissions (doc, target_app_id) & ~perms,
                               FALSE);
   queue_db_save ();
+
+  g_dbus_method_invocation_return_value (invocation, g_variant_new ("()"));
 }
 
 typedef struct {

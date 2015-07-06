@@ -88,8 +88,6 @@ do_new_local (int argc, char **argv)
 
   g_print ("document handle: %s\n", handle);
 
-  g_variant_unref (ret);
-
   if (appid != NULL)
     {
       path = g_strdup_printf ("/org/freedesktop/portal/document/%s", handle);
@@ -99,7 +97,7 @@ do_new_local (int argc, char **argv)
                                          "org.freedesktop.portal.Document",
                                          "GrantPermissions",
                                          g_variant_new ("(s^as)", appid, permissions),
-                                         G_VARIANT_TYPE ("(s)"),
+                                         G_VARIANT_TYPE ("()"),
                                          G_DBUS_CALL_FLAGS_NONE,
                                          30000,
                                          NULL,
@@ -109,11 +107,9 @@ do_new_local (int argc, char **argv)
           g_printerr ("%s\n", error->message);
           return 1;
         }
-
-      g_variant_get (ret, "(s)", &handle);
-
-      g_print ("permission handle: %s\n", handle);
     }
+
+  g_variant_unref (ret);
 
   return 0;
 }

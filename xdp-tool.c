@@ -41,20 +41,10 @@ main (int argc, char *argv[])
   argc -= 2;
   argv += 2;
 
-  if (strcmp (command, "cat") == 0)
-    return do_cat (argc, argv);
-  else if (strcmp (command, "add") == 0)
+  if (strcmp (command, "add") == 0)
     return do_add (argc, argv);
   else if (strcmp (command, "add-local") == 0)
     return do_add_local (argc, argv);
-  else if (strcmp (command, "new") == 0)
-    return do_new (argc, argv);
-  else if (strcmp (command, "new-local") == 0)
-    return do_new_local (argc, argv);
-  else if (strcmp (command, "update") == 0)
-    return do_update (argc, argv);
-  else if (strcmp (command, "info") == 0)
-    return do_info (argc, argv);
   else
     usage ();
 

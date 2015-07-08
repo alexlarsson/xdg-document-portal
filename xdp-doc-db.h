@@ -17,26 +17,23 @@ gboolean           xdp_doc_db_save            (XdpDocDb            *db,
                                                GError             **error);
 gboolean           xdp_doc_db_is_dirty        (XdpDocDb            *db);
 void               xdp_doc_db_dump            (XdpDocDb            *db);
+GVariant *         xdp_doc_db_lookup_doc_name (XdpDocDb            *db,
+                                               const char          *doc_name);
 GVariant *         xdp_doc_db_lookup_doc      (XdpDocDb            *db,
-                                               const char          *doc_id);
+                                               guint32              doc_id);
 GVariant *         xdp_doc_db_lookup_app      (XdpDocDb            *db,
                                                const char          *app_id);
 GVariant *         xdp_doc_db_lookup_uri      (XdpDocDb            *db,
                                                const char          *uri);
-char **            xdp_doc_db_list_docs       (XdpDocDb            *db);
+guint32*           xdp_doc_db_list_docs       (XdpDocDb            *db);
 char **            xdp_doc_db_list_apps       (XdpDocDb            *db);
 char **            xdp_doc_db_list_uris       (XdpDocDb            *db);
-char *             xdp_doc_db_create_doc      (XdpDocDb            *db,
-                                               const char          *uri,
-                                               const char          *title);
+guint32            xdp_doc_db_create_doc      (XdpDocDb            *db,
+                                               const char          *uri);
 gboolean           xdp_doc_db_delete_doc      (XdpDocDb            *db,
-                                               const char          *doc_id);
-gboolean           xdp_doc_db_update_doc      (XdpDocDb            *db,
-                                               const char          *doc_id,
-                                               const char          *uri,
-                                               const char          *title);
+                                               guint32              doc_id);
 gboolean           xdp_doc_db_set_permissions (XdpDocDb            *db,
-                                               const char          *doc_id,
+                                               guint32              doc_id,
                                                const char          *app_id,
                                                XdpPermissionFlags   permissions,
                                                gboolean             add);
@@ -46,12 +43,12 @@ XdpPermissionFlags xdp_doc_get_permissions    (GVariant            *doc,
 gboolean           xdp_doc_has_permissions    (GVariant            *doc,
                                                const char          *app_id,
                                                XdpPermissionFlags   permissions);
+guint32            xdb_doc_id_from_name       (const char          *name);
+char *             xdb_doc_name_from_id       (guint32              doc_id);
 const char *       xdp_doc_get_uri            (GVariant            *doc);
-const char *       xdp_doc_get_title          (GVariant            *doc);
 char *             xdp_doc_dup_path           (GVariant            *doc);
 char *             xdp_doc_dup_basename       (GVariant            *doc);
 char *             xdp_doc_dup_dirname        (GVariant            *doc);
-gboolean           xdp_doc_has_title          (GVariant            *doc);
 
 G_END_DECLS
 

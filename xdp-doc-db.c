@@ -35,10 +35,9 @@ G_DEFINE_TYPE(XdpDocDb, xdp_doc_db, G_TYPE_OBJECT)
 
 static GVariant *
 xdp_doc_new (const char *uri,
-             const char *title,
              GVariant *permissions)
 {
-  return g_variant_new ("(&s&s@a(su))", uri, title, permissions);
+  return g_variant_new ("(&s@a(su))", uri, permissions);
 }
 
 char *
@@ -57,6 +56,18 @@ xdp_doc_dup_dirname (GVariant *doc)
   return g_path_get_dirname (path);
 }
 
+guint32
+xdb_doc_id_from_name (const char *name)
+{
+  return g_ascii_strtoull (name, NULL, 16);
+}
+
+char *
+xdb_doc_name_from_id (guint32 doc_id)
+{
+  return g_strdup_printf ("%x", doc_id);
+}
+
 char *
 xdp_doc_dup_path (GVariant *doc)
 {
@@ -72,22 +83,6 @@ xdp_doc_get_uri (GVariant *doc)
 
   g_variant_get_child (doc, 0, "&s", &res);
   return res;
-}
-
-const char *
-xdp_doc_get_title (GVariant *doc)
-{
-  const char *res;
-
-  g_variant_get_child (doc, 1, "&s", &res);
-  return res;
-}
-
-gboolean
-xdp_doc_has_title (GVariant *doc)
-{
-  const char *title = xdp_doc_get_title (doc);
-  return *title != 0;
 }
 
 static void
@@ -121,7 +116,7 @@ xdp_doc_db_class_init (XdpDocDbClass *klass)
 static void
 xdp_doc_db_init (XdpDocDb *db)
 {
-  db->no_doc =  xdp_doc_new ("NONE", "NONE",
+  db->no_doc =  xdp_doc_new ("NONE",
                              g_variant_new_array (G_VARIANT_TYPE ("(su)"), NULL, 0));
 }
 
@@ -188,6 +183,7 @@ xdp_doc_db_save (XdpDocDb *db,
 {
   GHashTable *root, *docs, *apps, *uris;
   GvdbTable *gvdb;
+  guint32 *doc_ids;
   char **keys;
   int i;
 
@@ -199,17 +195,21 @@ xdp_doc_db_save (XdpDocDb *db,
   g_hash_table_unref (apps);
   g_hash_table_unref (uris);
 
-  keys = xdp_doc_db_list_docs (db);
-  for (i = 0; keys[i] != NULL; i++)
+  doc_ids = xdp_doc_db_list_docs (db);
+  for (i = 0; doc_ids[i] != 0; i++)
     {
-      g_autoptr(GVariant) doc = xdp_doc_db_lookup_doc (db, keys[i]);
+      g_autoptr(GVariant) doc = xdp_doc_db_lookup_doc (db, doc_ids[i]);
       if (doc != NULL)
         {
-          GvdbItem *item = gvdb_hash_table_insert (docs, keys[i]);
+          char id_num[9];
+          GvdbItem *item;
+
+          g_sprintf (id_num, "%x", (guint32)doc_ids[i]);
+          item = gvdb_hash_table_insert (docs, id_num);
           gvdb_item_set_value (item, doc);
         }
     }
-  g_strfreev (keys);
+  g_free (doc_ids);
 
   keys = xdp_doc_db_list_apps (db);
   for (i = 0; keys[i] != NULL; i++)
@@ -276,17 +276,18 @@ void
 xdp_doc_db_dump (XdpDocDb *db)
 {
   int i;
-  char **docs, **apps, **uris;
+  guint32 *docs;
+  char **apps, **uris;
 
   g_print ("docs:\n");
   docs = xdp_doc_db_list_docs (db);
-  for (i = 0; docs[i] != NULL; i++)
+  for (i = 0; docs[i] != 0; i++)
     {
       g_autoptr(GVariant) doc = xdp_doc_db_lookup_doc (db, docs[i]);
       if (doc)
-        g_print (" %s: %s\n", docs[i], g_variant_print (doc, FALSE));
+        g_print (" %x: %s\n", docs[i], g_variant_print (doc, FALSE));
     }
-  g_strfreev (docs);
+  g_free (docs);
 
   g_print ("apps:\n");
   apps = xdp_doc_db_list_apps (db);
@@ -308,7 +309,7 @@ xdp_doc_db_dump (XdpDocDb *db)
 }
 
 GVariant *
-xdp_doc_db_lookup_doc (XdpDocDb *db, const char *doc_id)
+xdp_doc_db_lookup_doc_name (XdpDocDb *db, const char *doc_id)
 {
   GVariant *res;
 
@@ -330,18 +331,31 @@ xdp_doc_db_lookup_doc (XdpDocDb *db, const char *doc_id)
   return NULL;
 }
 
-char **
+GVariant *
+xdp_doc_db_lookup_doc (XdpDocDb            *db,
+                       guint32              doc_id)
+{
+  char id_num[9];
+
+  g_sprintf (id_num, "%x", (guint32)doc_id);
+  return xdp_doc_db_lookup_doc_name (db, id_num);
+}
+
+guint32 *
 xdp_doc_db_list_docs (XdpDocDb *db)
 {
   GHashTableIter iter;
   gpointer key, value;
-  GPtrArray *res;
+  GArray *res;
 
-  res = g_ptr_array_new ();
+  res = g_array_new (TRUE, FALSE, sizeof (guint32));
 
   g_hash_table_iter_init (&iter, db->doc_updates);
   while (g_hash_table_iter_next (&iter, &key, &value))
-    g_ptr_array_add (res, g_strdup (key));
+    {
+      guint32 doc_id = xdb_doc_id_from_name (key);
+      g_array_append_val (res, doc_id);
+    }
 
   if (db->doc_table)
     {
@@ -352,16 +366,16 @@ xdp_doc_db_list_docs (XdpDocDb *db)
         {
           char *doc = table_docs[i];
 
-          if (g_hash_table_lookup (db->doc_updates, doc) != NULL)
-            g_free (doc);
-          else
-            g_ptr_array_add (res, doc);
+          if (g_hash_table_lookup (db->doc_updates, doc) == NULL)
+            {
+              guint32 doc_id = xdb_doc_id_from_name (doc);
+              g_array_append_val (res, doc_id);
+            }
         }
-      g_free (table_docs);
+      g_strfreev (table_docs);
     }
 
-  g_ptr_array_add (res, NULL);
-  return (char **)g_ptr_array_free (res, FALSE);
+  return (guint32 *)g_array_free (res, FALSE);
 }
 
 char **
@@ -474,7 +488,7 @@ xdp_doc_db_lookup_uri (XdpDocDb *db, const char *uri)
 static void
 xdp_doc_db_update_uri_docs (XdpDocDb *db,
                             const char *uri,
-                            const char *doc_id,
+                            guint32 doc_id,
                             gboolean added)
 {
   g_autoptr(GVariant) old_uri;
@@ -494,9 +508,9 @@ xdp_doc_db_update_uri_docs (XdpDocDb *db,
       g_variant_iter_init (&iter, doc_array);
       while ((child = g_variant_iter_next_value (&iter)))
         {
-          const char *child_doc_id = g_variant_get_string (child, NULL);
+          guint32 child_doc_id = g_variant_get_uint32 (child);
 
-          if (strcmp (doc_id, child_doc_id) == 0)
+          if (doc_id == child_doc_id)
             {
               if (added)
                 g_warning ("added doc already exist");
@@ -509,7 +523,7 @@ xdp_doc_db_update_uri_docs (XdpDocDb *db,
     }
 
   if (added)
-    g_variant_builder_add (&builder, "&s", doc_id);
+    g_variant_builder_add (&builder, "u", doc_id);
 
   array = g_variant_builder_end (&builder);
   res = g_variant_new_tuple (&array, 1);
@@ -520,39 +534,33 @@ xdp_doc_db_update_uri_docs (XdpDocDb *db,
 
 static void
 xdp_doc_db_insert_doc (XdpDocDb *db,
-                       const char *id,
+                       guint32 doc_id,
                        GVariant *doc)
 {
-  g_hash_table_insert (db->doc_updates, g_strdup (id),
+  g_hash_table_insert (db->doc_updates, xdb_doc_name_from_id (doc_id),
                        g_variant_ref_sink (doc));
   db->dirty = TRUE;
 
-  if (!xdp_doc_has_title (doc))
-    xdp_doc_db_update_uri_docs (db, xdp_doc_get_uri (doc), id, TRUE);
+  xdp_doc_db_update_uri_docs (db, xdp_doc_get_uri (doc), doc_id, TRUE);
 }
 
-char *
+guint32
 xdp_doc_db_create_doc (XdpDocDb *db,
-                       const char *uri,
-                       const char *title)
+                       const char *uri)
 {
   GVariant *doc;
-  guint32 id;
-  char id_num[17];
+  guint32 doc_id;
+  g_autoptr (GVariant) uri_v = NULL;
 
-  /* Reuse pre-existing entry with same uri and no title */
-  if (title == NULL || *title == 0)
+  /* Reuse pre-existing entry with same uri */
+  uri_v = xdp_doc_db_lookup_uri (db, uri);
+  if (uri_v != NULL)
     {
-      g_autoptr (GVariant) uri_v = xdp_doc_db_lookup_uri (db, uri);
-      if (uri_v != NULL)
+      g_autoptr(GVariant) doc_array = g_variant_get_child_value (uri_v, 0);
+      if (g_variant_n_children (doc_array) > 0)
         {
-          g_autoptr(GVariant) doc_array = g_variant_get_child_value (uri_v, 0);
-          if (g_variant_n_children (doc_array) > 0)
-            {
-              const char *doc_id;
-              g_variant_get_child (doc_array, 0, "&s", &doc_id);
-              return g_strdup (doc_id);
-            }
+          g_variant_get_child (doc_array, 0, "u", &doc_id);
+          return doc_id;
         }
     }
 
@@ -560,25 +568,24 @@ xdp_doc_db_create_doc (XdpDocDb *db,
     {
       g_autoptr(GVariant) existing_doc = NULL;
 
-      id = (guint32)g_random_int ();
-      g_sprintf (id_num, "%x", id);
+      doc_id = (guint32)g_random_int ();
 
-      existing_doc = xdp_doc_db_lookup_doc (db, id_num);
+      existing_doc = xdp_doc_db_lookup_doc (db, doc_id);
       if (existing_doc == NULL)
         break;
     }
 
-  doc = xdp_doc_new (uri, title,
+  doc = xdp_doc_new (uri,
                      g_variant_new_array (G_VARIANT_TYPE ("(su)"), NULL, 0));
-  xdp_doc_db_insert_doc (db, id_num, doc);
+  xdp_doc_db_insert_doc (db, doc_id, doc);
 
-  return g_strdup (id_num);
+  return doc_id;
 }
 
 static void
 xdp_doc_db_update_app_docs (XdpDocDb *db,
                             const char *app_id,
-                            const char *doc_id,
+                            guint32 doc_id,
                             gboolean added)
 {
   g_autoptr(GVariant) old_app = NULL;
@@ -598,9 +605,9 @@ xdp_doc_db_update_app_docs (XdpDocDb *db,
       g_variant_iter_init (&iter, doc_array);
       while ((child = g_variant_iter_next_value (&iter)))
         {
-          const char *child_doc_id = g_variant_get_string (child, NULL);
+          guint32 child_doc_id = g_variant_get_uint32 (child);
 
-          if (strcmp (doc_id, child_doc_id) == 0)
+          if (doc_id == child_doc_id)
             {
               if (added)
                 g_warning ("added doc already exist");
@@ -614,7 +621,7 @@ xdp_doc_db_update_app_docs (XdpDocDb *db,
     }
 
   if (added)
-    g_variant_builder_add (&builder, "&s", doc_id);
+    g_variant_builder_add (&builder, "u", doc_id);
 
   array = g_variant_builder_end (&builder);
   res = g_variant_new_tuple (&array, 1);
@@ -624,8 +631,8 @@ xdp_doc_db_update_app_docs (XdpDocDb *db,
 }
 
 gboolean
-xdp_doc_db_delete_doc (XdpDocDb            *db,
-                       const char          *doc_id)
+xdp_doc_db_delete_doc (XdpDocDb *db,
+                       guint32   doc_id)
 {
   g_autoptr(GVariant) old_doc = NULL;
   g_autoptr(GVariant) old_perms = NULL;
@@ -636,13 +643,13 @@ xdp_doc_db_delete_doc (XdpDocDb            *db,
   old_doc = xdp_doc_db_lookup_doc (db, doc_id);
   if (old_doc == NULL)
     {
-      g_warning ("no doc %s found", doc_id);
+      g_warning ("no doc %x found", doc_id);
       return FALSE;
     }
 
   xdp_doc_db_insert_doc (db, doc_id, db->no_doc);
 
-  app_array = g_variant_get_child_value (old_doc, 2);
+  app_array = g_variant_get_child_value (old_doc, 1);
   g_variant_iter_init (&iter, app_array);
   while ((child = g_variant_iter_next_value (&iter)))
     {
@@ -658,32 +665,10 @@ xdp_doc_db_delete_doc (XdpDocDb            *db,
                               doc_id, FALSE);
   return TRUE;
 }
-gboolean
-xdp_doc_db_update_doc (XdpDocDb *db,
-                       const char *doc_id,
-                       const char *uri,
-                       const char *title)
-{
-  g_autoptr(GVariant) old_doc = NULL;
-  g_autoptr(GVariant) old_perms = NULL;
-  GVariant *doc;
-
-  old_doc = xdp_doc_db_lookup_doc (db, doc_id);
-  if (old_doc == NULL)
-    {
-      g_warning ("no doc %s found", doc_id);
-      return FALSE;
-    }
-  old_perms = g_variant_get_child_value (old_doc, 2);
-  doc = xdp_doc_new (uri, title, old_perms);
-  xdp_doc_db_insert_doc (db, doc_id, doc);
-
-  return TRUE;
-}
 
 gboolean
 xdp_doc_db_set_permissions (XdpDocDb *db,
-                            const char *doc_id,
+                            guint32 doc_id,
                             const char *app_id,
                             XdpPermissionFlags permissions,
                             gboolean merge)
@@ -699,13 +684,13 @@ xdp_doc_db_set_permissions (XdpDocDb *db,
   old_doc = xdp_doc_db_lookup_doc (db, doc_id);
   if (old_doc == NULL)
     {
-      g_warning ("no doc %s found", doc_id);
+      g_warning ("no doc %x found", doc_id);
       return FALSE;
     }
 
   g_variant_builder_init (&builder, G_VARIANT_TYPE_ARRAY);
 
-  app_array = g_variant_get_child_value (old_doc, 2);
+  app_array = g_variant_get_child_value (old_doc, 1);
   g_variant_iter_init (&iter, app_array);
   while ((child = g_variant_iter_next_value (&iter)))
     {
@@ -733,9 +718,8 @@ xdp_doc_db_set_permissions (XdpDocDb *db,
     g_variant_builder_add (&builder, "(&su)", app_id, (guint32)permissions);
 
   doc = xdp_doc_new (xdp_doc_get_uri (old_doc),
-                     xdp_doc_get_title (old_doc),
                      g_variant_builder_end (&builder));
-  g_hash_table_insert (db->doc_updates, g_strdup (doc_id),
+  g_hash_table_insert (db->doc_updates, xdb_doc_name_from_id (doc_id),
                        g_variant_ref_sink (doc));
 
   if (found && permissions == 0)
@@ -759,7 +743,7 @@ xdp_doc_get_permissions (GVariant *doc,
   if (strcmp (app_id, "") == 0)
     return XDP_PERMISSION_FLAGS_ALL;
 
-  app_array = g_variant_get_child_value (doc, 2);
+  app_array = g_variant_get_child_value (doc, 1);
 
   g_variant_iter_init (&iter, app_array);
   while ((child = g_variant_iter_next_value (&iter)))
@@ -792,26 +776,25 @@ xdp_doc_has_permissions (GVariant *doc,
   return (current_perms & perms) == perms;
 }
 
-char **
+guint32 *
 xdp_app_list_docs (GVariant *app)
 {
-  GPtrArray *res;
   g_autoptr(GVariant) doc_array = NULL;
   GVariantIter iter;
   GVariant *child;
+  GArray *res;
 
-  res = g_ptr_array_new ();
+  res = g_array_new (TRUE, FALSE, sizeof (guint32));
 
   doc_array = g_variant_get_child_value (app, 0);
 
   g_variant_iter_init (&iter, doc_array);
   while ((child = g_variant_iter_next_value (&iter)))
     {
-      g_ptr_array_add (res, g_variant_dup_string (child, NULL));
+      guint32 child_id = g_variant_get_uint32 (child);
+      g_array_append_val (res, child_id);
       g_variant_unref (child);
     }
 
-  g_ptr_array_add (res, NULL);
-
-  return (char **)g_ptr_array_free (res, FALSE);
+  return (guint32 *)g_array_free (res, FALSE);
 }

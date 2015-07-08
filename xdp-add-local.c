@@ -18,11 +18,10 @@ do_add_local (int argc, char *argv[])
   g_autoptr(GFile) file = NULL;
   g_autofree char *path = NULL;
   char *appid = NULL;
-  char *handle;
+  guint32 doc_id;
   g_autoptr(GError) error = NULL;
   GUnixFDList *fd_list = NULL;
   GVariant *ret;
-  g_autofree char *dbus_path = NULL;
   int fd, fd_id;
   char *permissions[4] = { "read", "write", "grant-permissions", NULL };
 
@@ -70,7 +69,7 @@ do_add_local (int argc, char *argv[])
                                                        "org.freedesktop.portal.DocumentPortal",
                                                        "AddLocal",
                                                        g_variant_new ("(h)", fd_id),
-                                                       G_VARIANT_TYPE ("(s)"),
+                                                       G_VARIANT_TYPE ("(u)"),
                                                        G_DBUS_CALL_FLAGS_NONE,
                                                        30000,
                                                        fd_list, NULL,
@@ -84,20 +83,18 @@ do_add_local (int argc, char *argv[])
 
   g_object_unref (fd_list);
 
-  g_variant_get (ret, "(s)", &handle);
+  g_variant_get (ret, "(u)", &doc_id);
 
-  g_print ("document handle: %s\n", handle);
+  g_print ("document id: %x\n", doc_id);
 
   if (appid != NULL)
     {
-      dbus_path = g_strdup_printf ("/org/freedesktop/portal/document/%s", handle);
-
       ret = g_dbus_connection_call_sync (bus,
                                          "org.freedesktop.portal.DocumentPortal",
-                                         dbus_path,
-                                         "org.freedesktop.portal.Document",
+                                         "/org/freedesktop/portal/document",
+                                         "org.freedesktop.portal.DocumentPortal",
                                          "GrantPermissions",
-                                         g_variant_new ("(s^as)", appid, permissions),
+                                         g_variant_new ("(us^as)", doc_id, appid, permissions),
                                          G_VARIANT_TYPE ("()"),
                                          G_DBUS_CALL_FLAGS_NONE,
                                          30000,

@@ -12,10 +12,9 @@ do_add (int argc, char *argv[])
   g_autoptr(GFile) file = NULL;
   g_autofree char *uri = NULL;
   char *appid = NULL;
-  char *handle;
+  guint32 doc_id;
   g_autoptr(GError) error = NULL;
   GVariant *ret;
-  g_autofree char *path = NULL;
   char *permissions[4] = { "read", "write", "grant-permissions", NULL };
 
   setlocale (LC_ALL, "");
@@ -44,7 +43,7 @@ do_add (int argc, char *argv[])
                                      "org.freedesktop.portal.DocumentPortal",
                                      "Add",
                                      g_variant_new ("(s)", uri),
-                                     G_VARIANT_TYPE ("(s)"),
+                                     G_VARIANT_TYPE ("(u)"),
                                      G_DBUS_CALL_FLAGS_NONE,
                                      30000,
                                      NULL,
@@ -55,20 +54,18 @@ do_add (int argc, char *argv[])
       return 1;
     }
 
-  g_variant_get (ret, "(&s)", &handle);
+  g_variant_get (ret, "(u)", &doc_id);
 
-  g_print ("document handle: %s\n", handle);
+  g_print ("document id: %x\n", doc_id);
 
   if (appid != NULL)
     {
-      path = g_strdup_printf ("/org/freedesktop/portal/document/%s", handle);
-
       ret = g_dbus_connection_call_sync (bus,
                                          "org.freedesktop.portal.DocumentPortal",
-                                         path,
-                                         "org.freedesktop.portal.Document",
+                                         "/org/freedesktop/portal/document",
+                                         "org.freedesktop.portal.DocumentPortal",
                                          "GrantPermissions",
-                                         g_variant_new ("(s^as)", appid, permissions),
+                                         g_variant_new ("(us^as)", doc_id, appid, permissions),
                                          G_VARIANT_TYPE ("()"),
                                          G_DBUS_CALL_FLAGS_NONE,
                                          30000,

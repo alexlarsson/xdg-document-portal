@@ -271,27 +271,8 @@ xdp_fh_get_fd (XdpFh *fh)
 static int
 get_user_perms (const struct stat *stbuf)
 {
-  uid_t uid = geteuid ();
-  gid_t gid = getegid ();
-
-  if (uid == stbuf->st_uid)
-    {
-      return
-        ((stbuf->st_mode & S_IRUSR) ? S_IRUSR : 0) |
-        ((stbuf->st_mode & S_IWUSR) ? S_IWUSR : 0);
-    }
-  else if (gid == stbuf->st_uid)
-    {
-      return
-        ((stbuf->st_mode & S_IRGRP) ? S_IRUSR : 0) |
-        ((stbuf->st_mode & S_IWGRP) ? S_IWUSR : 0);
-    }
-  else
-    {
-      return
-        ((stbuf->st_mode & S_IROTH) ? S_IRUSR : 0) |
-        ((stbuf->st_mode & S_IWOTH) ? S_IWUSR : 0);
-   }
+  /* Strip out exec and setuid bits */
+  return stbuf->st_mode & 0666;
 }
 
 static int
@@ -1378,7 +1359,7 @@ xdp_fuse_setattr (fuse_req_t req,
   else if (to_set == FUSE_SET_ATTR_SIZE && fi == NULL)
     {
       gboolean found = FALSE;
-      int res = -1;
+      int res = 0;
       GList *l;
       struct stat newattr = {0};
       struct stat *newattrp = &newattr;
@@ -1405,6 +1386,49 @@ xdp_fuse_setattr (fuse_req_t req,
       if (res < 0)
         {
           fuse_reply_err (req, -res);
+          return;
+        }
+
+      fuse_reply_attr (req, &newattr, 1.0);
+    }
+  else if (to_set == FUSE_SET_ATTR_MODE)
+    {
+      gboolean found = FALSE;
+      int res, err = -1;
+      GList *l;
+      struct stat newattr = {0};
+
+      for (l = open_files; l != NULL; l = l->next)
+        {
+          XdpFh *fh = l->data;
+
+          if (fh->inode == ino)
+            {
+              int fd = xdp_fh_get_fd (fh);
+              if (fd != -1)
+                {
+                  res = fchmod (fd, get_user_perms (attr));
+                  if (!found)
+                    {
+                      if (res != 0)
+                        err = -errno;
+                      else
+                        err = xdp_fstat (fh, &newattr);
+                      found = TRUE;
+                    }
+                }
+            }
+        }
+
+      if (!found)
+        {
+          fuse_reply_err (req, EACCES);
+          return;
+        }
+
+      if (err < 0)
+        {
+          fuse_reply_err (req, -err);
           return;
         }
 

@@ -1674,8 +1674,8 @@ gboolean
 xdp_fuse_init (XdpDocDb *_db,
                GError **error)
 {
-  char *argv[] = { "xdp-fuse", NULL };
-  struct fuse_args args = FUSE_ARGS_INIT(G_N_ELEMENTS(argv)-1, argv);
+  char *argv[] = { "xdp-fuse", "-osplice_write" };
+  struct fuse_args args = FUSE_ARGS_INIT(G_N_ELEMENTS(argv), argv);
   struct fuse_chan *ch;
   GSource *source;
 

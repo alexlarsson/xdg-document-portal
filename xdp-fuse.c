@@ -1204,7 +1204,7 @@ xdp_fuse_write (fuse_req_t req,
                 struct fuse_file_info *fi)
 {
   XdpFh *fh = (gpointer)fi->fh;
-  gsize res;
+  gssize res;
   int fd;
 
   if (fh->readonly)
@@ -1223,6 +1223,42 @@ xdp_fuse_write (fuse_req_t req,
   res = pwrite (fd, buf, size, off);
   if (res < 0)
     fuse_reply_err (req, errno);
+  else
+    fuse_reply_write (req, res);
+}
+
+static void
+xdp_fuse_write_buf (fuse_req_t req,
+                    fuse_ino_t ino,
+                    struct fuse_bufvec *bufv,
+                    off_t off,
+                    struct fuse_file_info *fi)
+{
+  XdpFh *fh = (gpointer)fi->fh;
+  struct fuse_bufvec dst = FUSE_BUFVEC_INIT(fuse_buf_size(bufv));
+  gssize res;
+  int fd;
+
+  if (fh->readonly)
+    {
+      fuse_reply_err (req, EACCES);
+      return;
+    }
+
+  fd = xdp_fh_get_fd (fh);
+  if (fd == -1)
+    {
+      fuse_reply_err (req, EIO);
+      return;
+    }
+
+  dst.buf[0].flags = FUSE_BUF_IS_FD | FUSE_BUF_FD_SEEK;
+  dst.buf[0].fd = fd;
+  dst.buf[0].pos = off;
+
+  res = fuse_buf_copy (&dst, bufv, FUSE_BUF_SPLICE_NONBLOCK);
+  if (res < 0)
+    fuse_reply_err (req, -res);
   else
     fuse_reply_write (req, res);
 }
@@ -1578,6 +1614,7 @@ static struct fuse_lowlevel_ops xdp_fuse_oper = {
   .create       = xdp_fuse_create,
   .read         = xdp_fuse_read,
   .write        = xdp_fuse_write,
+  .write_buf    = xdp_fuse_write_buf,
   .release      = xdp_fuse_release,
   .rename       = xdp_fuse_rename,
   .setattr      = xdp_fuse_setattr,
@@ -1674,7 +1711,7 @@ gboolean
 xdp_fuse_init (XdpDocDb *_db,
                GError **error)
 {
-  char *argv[] = { "xdp-fuse", "-osplice_write" };
+  char *argv[] = { "xdp-fuse", "-osplice_write,splice_move,splice_read" };
   struct fuse_args args = FUSE_ARGS_INIT(G_N_ELEMENTS(argv), argv);
   struct fuse_chan *ch;
   GSource *source;

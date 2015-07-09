@@ -989,8 +989,15 @@ xdp_fuse_open (fuse_req_t req,
       g_autofree char *write_path = NULL;
       int write_fd = -1;
 
+      path = xdp_doc_dup_path (doc);
+
       if ((fi->flags & 3) != O_RDONLY)
         {
+          if (access (path, W_OK) != 0)
+            {
+              fuse_reply_err (req, errno);
+              return;
+            }
           write_path = create_tmp_for_doc (doc, O_RDWR, &write_fd);
           if (write_path == NULL)
             {
@@ -998,8 +1005,6 @@ xdp_fuse_open (fuse_req_t req,
               return;
             }
         }
-
-      path = xdp_doc_dup_path (doc);
 
       fd = open (path, O_RDONLY);
       if (fd < 0)

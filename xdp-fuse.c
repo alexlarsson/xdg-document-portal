@@ -34,6 +34,9 @@
 #define NON_DOC_DIR_PERMS 0500
 #define DOC_DIR_PERMS 0700
 
+/* The (fake) directories don't really change */
+#define DIRS_ATTR_CACHE_TIME 60.0
+
 /* We pretend that the file is hardlinked. This causes most apps to do
    a truncating overwrite, which suits us better, as we do the atomic
    rename ourselves anyway. This way we don't weirdly change the inode
@@ -275,6 +278,22 @@ get_user_perms (const struct stat *stbuf)
   return stbuf->st_mode & 0666;
 }
 
+static double
+get_attr_cache_time (int st_mode)
+{
+  if (S_ISDIR (st_mode))
+    return DIRS_ATTR_CACHE_TIME;
+  return 0.0;
+}
+
+static double
+get_entry_cache_time (int st_mode)
+{
+  if (S_ISDIR (st_mode))
+    return DIRS_ATTR_CACHE_TIME;
+  return 1.0;
+}
+
 static int
 xdp_stat (fuse_ino_t ino,
           struct stat *stbuf,
@@ -449,7 +468,7 @@ xdp_fuse_getattr (fuse_req_t req,
       res = xdp_fstat (fh, &stbuf);
       if (res == 0)
         {
-          fuse_reply_attr (req, &stbuf, 1.0);
+          fuse_reply_attr (req, &stbuf, get_attr_cache_time (stbuf.st_mode));
           return;
         }
     }
@@ -462,7 +481,7 @@ xdp_fuse_getattr (fuse_req_t req,
           res = xdp_fstat (fh, &stbuf);
           if (res == 0)
             {
-              fuse_reply_attr (req, &stbuf, 1.0);
+              fuse_reply_attr (req, &stbuf, get_attr_cache_time (stbuf.st_mode));
               return;
             }
         }
@@ -471,7 +490,7 @@ xdp_fuse_getattr (fuse_req_t req,
   if ((res = xdp_stat (ino, &stbuf, NULL)) != 0)
     fuse_reply_err (req, res);
   else
-    fuse_reply_attr (req, &stbuf, 1.0);
+    fuse_reply_attr (req, &stbuf, get_attr_cache_time (stbuf.st_mode));
 }
 
 static int
@@ -612,8 +631,8 @@ xdp_fuse_lookup (fuse_req_t req,
 
   if (res == 0)
     {
-      e.attr_timeout = 1.0;
-      e.entry_timeout = 1.0;
+      e.attr_timeout = get_attr_cache_time (e.attr.st_mode);
+      e.entry_timeout = get_entry_cache_time (e.attr.st_mode);
       fuse_reply_entry (req, &e);
     }
   else
@@ -1083,8 +1102,6 @@ xdp_fuse_create (fuse_req_t req,
         }
 
       e.ino = make_inode (DOC_FILE_INO_CLASS, doc_id);
-      e.attr_timeout = 1.0;
-      e.entry_timeout = 1.0;
 
       fh = xdp_fh_new (e.ino, fi, fd, NULL);
       fh->truncated = TRUE;
@@ -1098,6 +1115,9 @@ xdp_fuse_create (fuse_req_t req,
           fuse_reply_err (req, EIO);
           return;
         }
+
+      e.attr_timeout = get_attr_cache_time (e.attr.st_mode);
+      e.entry_timeout = get_entry_cache_time (e.attr.st_mode);
 
       if (fuse_reply_create (req, &e, fi))
         xdp_fh_free (fh);
@@ -1131,13 +1151,13 @@ xdp_fuse_create (fuse_req_t req,
         }
 
       e.ino = make_inode (TMPFILE_INO_CLASS, tmpfile->tmp_id);
-      e.attr_timeout = 1.0;
-      e.entry_timeout = 1.0;
       if (xdp_stat (e.ino, &e.attr, NULL) != 0)
         {
           fuse_reply_err (req, EIO);
           return;
         }
+      e.attr_timeout = get_attr_cache_time (e.attr.st_mode);
+      e.entry_timeout = get_entry_cache_time (e.attr.st_mode);
 
       fh = xdp_fh_new (e.ino, fi, fd, tmpfile);
       if (fuse_reply_create (req, &e, fi))
@@ -1352,7 +1372,7 @@ xdp_fuse_setattr (fuse_req_t req,
           return;
         }
 
-      fuse_reply_attr (req, &newattr, 1.0);
+      fuse_reply_attr (req, &newattr, get_attr_cache_time (newattr.st_mode));
     }
   else if (to_set == FUSE_SET_ATTR_SIZE && fi == NULL)
     {
@@ -1387,7 +1407,7 @@ xdp_fuse_setattr (fuse_req_t req,
           return;
         }
 
-      fuse_reply_attr (req, &newattr, 1.0);
+      fuse_reply_attr (req, &newattr, get_attr_cache_time (newattr.st_mode));
     }
   else if (to_set == FUSE_SET_ATTR_MODE)
     {
@@ -1430,7 +1450,7 @@ xdp_fuse_setattr (fuse_req_t req,
           return;
         }
 
-      fuse_reply_attr (req, &newattr, 1.0);
+      fuse_reply_attr (req, &newattr, get_attr_cache_time (newattr.st_mode));
     }
   else
     fuse_reply_err (req, ENOSYS);

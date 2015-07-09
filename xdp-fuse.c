@@ -1415,6 +1415,44 @@ xdp_fuse_setattr (fuse_req_t req,
 }
 
 static void
+xdp_fuse_fsyncdir (fuse_req_t req,
+                   fuse_ino_t ino,
+                   int datasync,
+                   struct fuse_file_info *fi)
+{
+  XdpInodeClass class = get_class (ino);
+  guint64 class_ino = get_class_ino (ino);
+  guint32 doc_id;
+
+  if (class == DOC_DIR_INO_CLASS ||
+      class == APP_DOC_DIR_INO_CLASS)
+    {
+      g_autoptr (GVariant) doc = NULL;
+      if (class == APP_DOC_DIR_INO_CLASS)
+        doc_id = get_doc_id_from_app_doc_ino (class_ino);
+      else
+        doc_id = class_ino;
+
+      doc = xdp_doc_db_lookup_doc (db, doc_id);
+      if (doc != NULL)
+        {
+          g_autofree char *dirname = xdp_doc_dup_dirname (doc);
+          int fd = open (dirname, O_DIRECTORY|O_RDONLY);
+          if (fd >= 0)
+            {
+              if (datasync)
+                fdatasync (fd);
+              else
+                fsync (fd);
+              close (fd);
+            }
+        }
+    }
+
+  fuse_reply_err (req, 0);
+}
+
+static void
 xdp_fuse_fsync (fuse_req_t req,
                 fuse_ino_t ino,
                 int datasync,
@@ -1493,6 +1531,7 @@ static struct fuse_lowlevel_ops xdp_fuse_oper = {
   .opendir      = xdp_fuse_opendir,
   .readdir      = xdp_fuse_readdir,
   .releasedir   = xdp_fuse_releasedir,
+  .fsyncdir     = xdp_fuse_fsyncdir,
   .open         = xdp_fuse_open,
   .create       = xdp_fuse_create,
   .read         = xdp_fuse_read,

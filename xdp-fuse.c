@@ -24,12 +24,15 @@
       "org.gnome.gedit/" (APP_DIR:app id)
         "$id/" (APP_DOC_DIR:app_id<<32|doc_id)
           <same as DOC_DIR>
+    "in-homedir/" (APP_DOC_DIR:1)
     "$id" (DOC_DIR:doc_idid)
       $basename (DOC_FILE:doc_id)
       $tmpfile (TMPFILE:tmp_id)
 */
 
 #define BY_APP_INO 2
+
+#define IN_HOMEDIR_APP_ID 1
 
 #define NON_DOC_DIR_PERMS 0500
 #define DOC_DIR_PERMS 0700
@@ -53,6 +56,7 @@ typedef enum {
 } XdpInodeClass;
 
 #define BY_APP_NAME "by-app"
+#define IN_HOMEDIR_NAME "in-homedir"
 
 static XdpDocDb *db;
 
@@ -294,6 +298,25 @@ get_entry_cache_time (int st_mode)
   return 1.0;
 }
 
+static gboolean
+app_can_see_doc (GVariant *doc, guint32 app_id)
+{
+  const char *app_name = get_app_name_from_id (app_id);
+  if (app_name != NULL &&
+      xdp_doc_has_permissions (doc, app_name, XDP_PERMISSION_FLAGS_READ))
+    return TRUE;
+
+  if (app_id == IN_HOMEDIR_APP_ID)
+    {
+      g_autofree char *path = xdp_doc_dup_path (doc);
+
+      if (g_str_has_prefix (path, g_get_home_dir ()))
+        return TRUE;
+    }
+
+  return FALSE;
+}
+
 static int
 xdp_stat (fuse_ino_t ino,
           struct stat *stbuf,
@@ -330,7 +353,7 @@ xdp_stat (fuse_ino_t ino,
       break;
 
     case APP_DIR_INO_CLASS:
-      if (get_app_name_from_id (class_ino) == 0)
+      if (class_ino != IN_HOMEDIR_APP_ID && get_app_name_from_id (class_ino) == 0)
         return ENOENT;
 
       stbuf->st_mode = S_IFDIR | NON_DOC_DIR_PERMS;
@@ -341,14 +364,10 @@ xdp_stat (fuse_ino_t ino,
       {
         guint32 app_id = get_app_id_from_app_doc_ino (class_ino);
         guint32 doc_id = get_doc_id_from_app_doc_ino (class_ino);
-        const char *app_name = get_app_name_from_id (app_id);
-
-        if (app_name == NULL)
-          return ENOENT;
 
         doc = xdp_doc_db_lookup_doc (db, doc_id);
         if (doc == NULL ||
-            !xdp_doc_has_permissions (doc, app_name, XDP_PERMISSION_FLAGS_READ))
+            !app_can_see_doc (doc, app_id))
           return ENOENT;
 
         stbuf->st_mode = S_IFDIR | DOC_DIR_PERMS;
@@ -524,6 +543,12 @@ xdp_lookup (fuse_ino_t parent,
               if (xdp_stat (*inode, stbuf, NULL) == 0)
                 return 0;
             }
+          else if (strcmp (name, IN_HOMEDIR_NAME) == 0)
+            {
+              *inode = make_inode (APP_DIR_INO_CLASS, IN_HOMEDIR_APP_ID);
+              if (xdp_stat (*inode, stbuf, NULL) == 0)
+                return 0;
+            }
           else if (name_looks_like_id (name))
             {
               *inode = make_inode (DOC_DIR_INO_CLASS,
@@ -673,7 +698,6 @@ dirbuf_add_docs (fuse_req_t req,
   g_autofree guint32 *docs = NULL;
   guint64 inode;
   int i;
-  const char *app_name = get_app_name_from_id (app_id);
   g_autofree char *doc_name = NULL;
 
   docs = xdp_doc_db_list_docs (db);
@@ -683,7 +707,7 @@ dirbuf_add_docs (fuse_req_t req,
         {
           g_autoptr(GVariant) doc = xdp_doc_db_lookup_doc (db, docs[i]);
           if (doc == NULL ||
-              !xdp_doc_has_permissions (doc, app_name, XDP_PERMISSION_FLAGS_READ))
+              !app_can_see_doc (doc, app_id))
             continue;
         }
       if (app_id)
@@ -789,6 +813,8 @@ xdp_fuse_opendir (fuse_req_t req,
           dirbuf_add (req, &b, "..", FUSE_ROOT_ID);
           dirbuf_add (req, &b, BY_APP_NAME,
                       make_inode (STD_DIRS_INO_CLASS, BY_APP_INO));
+          dirbuf_add (req, &b, IN_HOMEDIR_NAME,
+                      make_inode (APP_DIR_INO_CLASS, IN_HOMEDIR_APP_ID));
           dirbuf_add_docs (req, &b, 0);
           break;
 
@@ -1721,7 +1747,7 @@ xdp_fuse_init (XdpDocDb *_db,
     g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
   app_id_to_name =
     g_hash_table_new_full (g_direct_hash, g_direct_equal, NULL, NULL);
-  next_app_id = 1;
+  next_app_id = IN_HOMEDIR_APP_ID + 1;
   next_tmp_id = 1;
 
   mount_path = g_build_filename (g_get_user_runtime_dir(), "doc", NULL);

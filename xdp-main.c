@@ -60,6 +60,34 @@ queue_db_save (void)
     save_timeout = g_timeout_add_seconds (10, queue_db_save_timeout, NULL);
 }
 
+static XdpPermissionFlags
+parse_permissions (const char **permissions, GError **error)
+{
+  XdpPermissionFlags perms;
+  int i;
+
+  perms = 0;
+  for (i = 0; permissions[i]; i++)
+    {
+      if (strcmp (permissions[i], "read") == 0)
+        perms |= XDP_PERMISSION_FLAGS_READ;
+      else if (strcmp (permissions[i], "write") == 0)
+        perms |= XDP_PERMISSION_FLAGS_WRITE;
+      else if (strcmp (permissions[i], "grant-permissions") == 0)
+        perms |= XDP_PERMISSION_FLAGS_GRANT_PERMISSIONS;
+      else if (strcmp (permissions[i], "delete") == 0)
+        perms |= XDP_PERMISSION_FLAGS_DELETE;
+      else
+        {
+          g_set_error (error, XDP_ERROR, XDP_ERROR_INVALID_ARGUMENT,
+                       "No such permission: %s", permissions[i]);
+          return -1;
+        }
+    }
+
+  return perms;
+}
+
 static void
 portal_grant_permissions (GDBusMethodInvocation *invocation,
                           GVariant *parameters,
@@ -68,9 +96,9 @@ portal_grant_permissions (GDBusMethodInvocation *invocation,
   const char *target_app_id;
   guint32 doc_id;
   g_autoptr(GVariant) doc = NULL;
-  char **permissions;
+  g_autoptr(GError) error = NULL;
+  const char **permissions;
   XdpPermissionFlags perms;
-  gint i;
 
   g_variant_get (parameters, "(u&s^a&s)", &doc_id, &target_app_id, &permissions);
 
@@ -82,21 +110,11 @@ portal_grant_permissions (GDBusMethodInvocation *invocation,
       return;
     }
   
-  perms = 0;
-  for (i = 0; permissions[i]; i++)
+  perms = parse_permissions (permissions, &error);
+  if (perms == -1)
     {
-      if (strcmp (permissions[i], "read") == 0)
-        perms |= XDP_PERMISSION_FLAGS_READ;
-      else if (strcmp (permissions[i], "write") == 0)
-        perms |= XDP_PERMISSION_FLAGS_WRITE;
-      else if (strcmp (permissions[i], "grant-permissions") == 0)
-        perms |= XDP_PERMISSION_FLAGS_GRANT_PERMISSIONS;
-      else
-        {
-          g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_INVALID_ARGUMENT,
-                                                 "No such permission: %s", permissions[i]);
-          return;
-        }
+      g_dbus_method_invocation_return_gerror (invocation, error);
+      return;
     }
 
   /* Must have grant-permissions and all the newly granted permissions */
@@ -121,10 +139,10 @@ portal_revoke_permissions (GDBusMethodInvocation *invocation,
 {
   const char *target_app_id;
   g_autoptr(GVariant) doc = NULL;
+  g_autoptr(GError) error = NULL;
   guint32 doc_id;
-  char **permissions;
+  const char **permissions;
   XdpPermissionFlags perms;
-  gint i;
 
   g_variant_get (parameters, "(u&s^a&s)", &doc_id, &target_app_id, &permissions);
 
@@ -136,21 +154,11 @@ portal_revoke_permissions (GDBusMethodInvocation *invocation,
       return;
     }
 
-  perms = 0;
-  for (i = 0; permissions[i]; i++)
+  perms = parse_permissions (permissions, &error);
+  if (perms == -1)
     {
-      if (strcmp (permissions[i], "read") == 0)
-        perms |= XDP_PERMISSION_FLAGS_READ;
-      else if (strcmp (permissions[i], "write") == 0)
-        perms |= XDP_PERMISSION_FLAGS_WRITE;
-      else if (strcmp (permissions[i], "grant-permissions") == 0)
-        perms |= XDP_PERMISSION_FLAGS_GRANT_PERMISSIONS;
-      else
-        {
-          g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_NOT_FOUND,
-                                                 "No such permission: %s", permissions[i]);
-          return;
-        }
+      g_dbus_method_invocation_return_gerror (invocation, error);
+      return;
     }
 
   /* Must have grant-permissions, or be itself */
@@ -185,6 +193,13 @@ portal_delete (GDBusMethodInvocation *invocation,
     {
       g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_NOT_FOUND,
                                              "No such document: %d", doc_id);
+      return;
+    }
+
+  if (!xdp_doc_has_permissions (doc, app_id, XDP_PERMISSION_FLAGS_DELETE))
+    {
+      g_dbus_method_invocation_return_error (invocation, XDP_ERROR, XDP_ERROR_NOT_ALLOWED,
+                                             "Not enough permissions");
       return;
     }
   

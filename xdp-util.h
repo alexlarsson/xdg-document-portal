@@ -16,14 +16,6 @@ char *xdp_invocation_lookup_app_id_finish (GDBusMethodInvocation  *invocation,
 
 void  xdp_connection_track_name_owners    (GDBusConnection        *connection);
 
-void     xdp_copy_fd_to_out_async        (int                   in_fd,
-					  GOutputStream        *output,
-					  GAsyncReadyCallback   callback,
-					  gpointer              callback_data);
-gboolean xdp_copy_fd_to_out_async_finish (GOutputStream        *output,
-					  GAsyncResult         *res,
-					  GError              **error);
-
 G_END_DECLS
 
 #endif /* XDP_UTIL_H */

@@ -1724,7 +1724,7 @@ xdp_fuse_init (XdpDocDb *_db,
   next_app_id = 1;
   next_tmp_id = 1;
 
-  mount_path = g_build_filename (g_get_user_runtime_dir(), "xdp", NULL);
+  mount_path = g_build_filename (g_get_user_runtime_dir(), "doc", NULL);
   if (g_mkdir_with_parents  (mount_path, 0700))
     {
       g_set_error (error, XDP_ERROR, XDP_ERROR_FAILED,

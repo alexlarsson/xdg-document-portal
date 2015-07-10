@@ -458,7 +458,7 @@ xdp_fuse_getattr (fuse_req_t req,
   GList *l;
   int res;
 
-  g_debug ("xdp_fuse_getattr %lx (fi=%p)\n", ino, fi);
+  g_debug ("xdp_fuse_getattr %lx (fi=%p)", ino, fi);
 
   /* Fuse passes fi in to verify EOF during read/write/seek, but not during fstat */
   if (fi != NULL)
@@ -623,7 +623,7 @@ xdp_fuse_lookup (fuse_req_t req,
   struct fuse_entry_param e = {0};
   int res;
 
-  g_debug ("xdp_fuse_lookup %lx/%s\n", parent, name);
+  g_debug ("xdp_fuse_lookup %lx/%s", parent, name);
 
   memset (&e, 0, sizeof(e));
 
@@ -762,7 +762,7 @@ xdp_fuse_opendir (fuse_req_t req,
   g_autofree char *basename = NULL;
   int res;
 
-  g_debug ("xdp_fuse_opendir %lx\n", ino);
+  g_debug ("xdp_fuse_opendir %lx", ino);
 
   if ((res = xdp_stat (ino, &stbuf, &doc)) != 0)
     {
@@ -968,7 +968,7 @@ xdp_fuse_open (fuse_req_t req,
   int fd, res;
   XdpFh *fh;
 
-  g_debug ("xdp_fuse_open %lx\n", ino);
+  g_debug ("xdp_fuse_open %lx", ino);
 
   if ((res = xdp_stat (ino, &stbuf, &doc)) != 0)
     {
@@ -1054,7 +1054,7 @@ xdp_fuse_create (fuse_req_t req,
   XdpTmp *tmpfile;
   int fd, res;
 
-  g_debug ("xdp_fuse_create %lx/%s, flags %o\n", parent, name, fi->flags);
+  g_debug ("xdp_fuse_create %lx/%s, flags %o", parent, name, fi->flags);
 
   if ((res = xdp_stat (parent, &stbuf, &doc)) != 0)
     {
@@ -1289,7 +1289,7 @@ xdp_fuse_rename (fuse_req_t req,
   XdpTmp *other_tmp, *tmp;
   GList *l;
 
-  g_debug ("xdp_fuse_rename %lx/%s -> %lx/%s\n", parent, name, newparent, newname);
+  g_debug ("xdp_fuse_rename %lx/%s -> %lx/%s", parent, name, newparent, newname);
 
   res = xdp_lookup (parent, name,  &inode, &stbuf, &doc, &tmp);
   if (res != 0)
@@ -1391,7 +1391,7 @@ xdp_fuse_setattr (fuse_req_t req,
                   int to_set,
                   struct fuse_file_info *fi)
 {
-  g_debug ("xdp_fuse_setattr %lx %x %p\n", ino, to_set, fi);
+  g_debug ("xdp_fuse_setattr %lx %x %p", ino, to_set, fi);
 
   if (to_set == FUSE_SET_ATTR_SIZE && fi != NULL)
     {
@@ -1564,7 +1564,7 @@ xdp_fuse_unlink (fuse_req_t req,
   g_autofree char *basename = NULL;
   XdpTmp *tmp;
 
-  g_debug ("xdp_fuse_unlink %lx/%s\n", parent, name);
+  g_debug ("xdp_fuse_unlink %lx/%s", parent, name);
 
   res = xdp_lookup (parent, name,  &inode, &stbuf, &doc, &tmp);
   if (res != 0)

@@ -440,6 +440,26 @@ set_one_signal_handler (int sig,
   return 0;
 }
 
+static gboolean opt_verbose;
+
+static GOptionEntry entries[] = {
+  { "verbose", 'v', 0, G_OPTION_ARG_NONE, &opt_verbose, "Print debug information during command processing", NULL },
+  { NULL }
+};
+
+static void
+message_handler (const gchar *log_domain,
+                 GLogLevelFlags log_level,
+                 const gchar *message,
+                 gpointer user_data)
+{
+  /* Make this look like normal console output */
+  if (log_level & G_LOG_LEVEL_DEBUG)
+    g_printerr ("XDP: %s\n", message);
+  else
+    g_printerr ("%s: %s\n", g_get_prgname (), message);
+}
+
 int
 main (int    argc,
       char **argv)
@@ -453,11 +473,23 @@ main (int    argc,
   g_autoptr(GFile) data_dir = NULL;
   g_autoptr(GFile) db_file = NULL;
   GDBusConnection  *session_bus;
+  GOptionContext *context;
 
   setlocale (LC_ALL, "");
 
   /* Avoid even loading gvfs to avoid accidental confusion */
   g_setenv ("GIO_USE_VFS", "local", TRUE);
+
+  context = g_option_context_new ("- document portal");
+  g_option_context_add_main_entries (context, entries, NULL);
+  if (!g_option_context_parse (context, &argc, &argv, &error))
+    {
+      g_print ("option parsing failed: %s\n", error->message);
+      return 1;
+    }
+
+  if (opt_verbose)
+    g_log_set_handler (NULL, G_LOG_LEVEL_DEBUG, message_handler, NULL);
 
   g_set_prgname (argv[0]);
 
